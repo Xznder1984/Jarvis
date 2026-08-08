@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+#
+# Pre-commit secret check — blocks commits that stage likely API keys.
+# Install via:  git config core.hooksPath scripts
+#   (or symlink into .git/hooks/pre-commit)
+
+set -u
+
+# Likely key patterns for common providers. Deliberately broad: a false
+# positive is cheap, a leaked key is not.
+PATTERNS=(
+  'sk-[A-Za-z0-9]{20,}'
+  'sk-proj-[A-Za-z0-9_-]{20,}'
+  'csk-[A-Za-z0-9]{20,}'
+  'ghp_[A-Za-z0-9]{36}'
+  'gho_[A-Za-z0-9]{36}'
+  'AIza[0-9A-Za-z_-]{20,}'
+  'xox[baprs]-[A-Za-z0-9-]{20,}'
+  'AKIA[0-9A-Z]{16}'
+  '-----BEGIN [A-Z ]*PRIVATE KEY-----'
+)
+
+# Files whose name alone is enough to block (env files, keystores).
+BLOCKED_FILES=(
+  '.env'
+  '*.pem'
+  '*.key'
+  '*.p12'
+  '*.pfx'
+)
+
+fails=0
+
+# Process staged filenames one at a time (NUL-safe via process substitution).
+while IFS= read -r -d '' file; do
+  [ -z "$file" ] && continue
+  # Blocklist by name
+  for b in "${BLOCKED_FILES[@]}"; do
+    if [[ "$file" == $b ]]; then
+      echo "error: staging secret-file '$file' is not allowed." >&2
+      fails=1
+    fi
+  done
+  # Grep contents (skip binaries)
+  if [ -f "$file" ] && ! file --mime "$file" 2>/dev/null | grep -q 'binary'; then
+    content=$(git show :"$file" 2>/dev/null || cat "$file")
+    for p in "${PATTERNS[@]}"; do
+      if printf '%s\n' "$content" | grep -Eq -- "$p"; then
+        echo "error: '$file' may contain an API key (pattern ${p:0:20}...). Remove it before committing." >&2
+        fails=1
+      fi
+    done
+  fi
+done < <(git diff --cached --name-only -z)
+
+if [ "$fails" -ne 0 ]; then
+  echo "pre-commit: secret check failed — commit aborted." >&2
+  exit 1
+fi
+
+exit 0

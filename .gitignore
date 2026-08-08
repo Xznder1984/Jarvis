@@ -1,0 +1,61 @@
+# --- Environment / Secrets ---
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets/
+**/secrets/
+
+# --- Test fixtures & personal data (may contain real keys) ---
+tests/fixtures/
+**/*.local.*
+*.local
+recordings/
+screenshots/
+**/recordings/
+**/screenshots/
+
+# --- Rust ---
+target/
+**/target/
+*.rs.bk
+
+# --- Node ---
+node_modules/
+dist/
+dist-ssr/
+*.local
+.vite/
+npm-debug.log*
+yarn-error.log*
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+.python-version
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.coverage
+htmlcov/
+*.egg-info/
+.eggs/
+
+# --- OS cruft ---
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# --- IDE / editor ---
+.vscode/*
+!.vscode/extensions.json
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
