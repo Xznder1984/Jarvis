@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "jarvis-backend"
+version = "0.1.0"
+description = "JARVIS local orchestration backend (LLM routing, TTS, STT, vision, tools)"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+
+[tool.setuptools.packages.find]
+include = ["jarvis*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.pytest.ini_options]
+testpaths = ["jarvis/tests"]
+pythonpath = ["."]
