@@ -1,4 +1,5 @@
 pub mod audio;
+pub mod logging;
 pub mod platform;
 pub mod ws;
 
@@ -9,13 +10,15 @@ pub struct WsState(pub Mutex<Option<ws::WsClient>>);
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    env_logger::init();
+    logging::init();
 
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .manage(WsState(Mutex::new(None)))
         .manage(audio::AudioState::default())
         .setup(|app| {
+            // Let the logger forward records to the backend over WS.
+            logging::attach(app.handle());
             // Spawn the backend connection loop (with reconnect).
             let handle = app.handle().clone();
             std::thread::spawn(move || {
@@ -34,6 +37,8 @@ pub fn run() {
             audio::start_listening,
             audio::stop_listening,
             audio::set_clap_settings,
+            logging::get_logs,
+            logging::clear_logs,
             platform::action_open_app,
             platform::action_open_path,
             platform::action_sleep,

@@ -116,6 +116,21 @@ async fn handle_inbound(app: &AppHandle, env: Value) {
                 "detail": result.unwrap_or_else(|e| e),
             }));
         }
+        "clap_settings" => {
+            if let Some(state) = app.try_state::<crate::audio::AudioState>() {
+                let settings = serde_json::from_value::<crate::audio::ClapSettings>(payload.clone())
+                    .unwrap_or_default();
+                if let Ok(mut guard) = state.settings.lock() {
+                    *guard = settings;
+                }
+                log::info!("clap settings updated from backend");
+            }
+        }
+        "session_end" => {
+            crate::audio::stop_listening_soft(app);
+            // Forward to the frontend unchanged.
+            let _ = app.emit(&msg_type, payload);
+        }
         _ => {
             // Forward anything else to the frontend unchanged.
             let _ = app.emit(&msg_type, payload);
