@@ -2,7 +2,8 @@
 //!
 //! Two responsibilities:
 //! 1. Continuously listen and detect 2+ consecutive claps within a window,
-//!    using a persistent adaptive noise floor (so ambient noise doesn't wake it).
+//!    using a persistent adaptive noise floor plus a peak/RMS transient test,
+//!    so both quiet and loud claps wake it while ambient noise doesn't.
 //! 2. After a wake, stream PCM to the backend for STT. Streaming is voice
 //!    activity gated: audio is discarded during a grace window (so the wake
 //!    response isn't transcribed back), then streamed only while the RMS is
@@ -22,6 +23,16 @@ use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::WsState;
+
+/// Absolute minimum clap peak. Quiet claps land well below the old 0.02 floor,
+/// so this is kept low; the noise-floor multiplier does the real gating.
+const CLAP_ABS_MIN: f32 = 0.003;
+/// Reject sustained noise (TV, music, fan): a clap's peak must be this many
+/// times its own chunk RMS to count as a transient.
+const CLAP_TRANSIENT_RATIO: f32 = 1.8;
+/// Ignore further clap candidates for this long after one registers, so a
+/// single clap spanning several chunks can't count as two claps.
+const CLAP_HOLD_MS: u64 = 250;
 
 /// Settings for wake + streaming (configurable via the Settings UI / backend).
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -47,7 +58,7 @@ impl Default for ClapSettings {
         Self {
             clap_count: 2,
             window_ms: 1200,
-            sensitivity: 0.35,
+            sensitivity: 0.5,
             grace_ms: 2200,
             silence_ms: 900,
             max_utterance_ms: 15_000,
@@ -73,6 +84,8 @@ pub struct CaptureState {
     pub utterance_started: bool,
     pub utterance_start: Option<Instant>,
     pub last_voice: Option<Instant>,
+    /// When the last clap registered (for single-clap blanking).
+    pub last_clap_at: Option<Instant>,
 }
 
 impl Default for CaptureState {
@@ -84,6 +97,7 @@ impl Default for CaptureState {
             utterance_started: false,
             utterance_start: None,
             last_voice: None,
+            last_clap_at: None,
         }
     }
 }
@@ -199,42 +213,69 @@ fn rms(samples: &[f32]) -> f32 {
     (sum / samples.len() as f32).sqrt()
 }
 
+/// Clap detection threshold for a given ambient noise floor. Sensitivity 0..1
+/// maps to a relative gain of 3.0x..1.0x the floor (higher = lower threshold =
+/// quieter claps wake it), never below an absolute minimum.
+fn clap_threshold(floor: f32, sensitivity: f32) -> f32 {
+    let rel_gain = 3.0 - sensitivity.clamp(0.0, 1.0) * 2.0;
+    (floor * rel_gain).max(CLAP_ABS_MIN)
+}
+
 fn process_audio(app: &AppHandle, state: &AudioState, samples: &[f32], sample_rate: u32) {
     let level = rms(samples);
+    let peak = samples
+        .iter()
+        .fold(0f32, |m, s| if s.abs() > m { s.abs() } else { m });
     let settings = state.settings.lock().map(|g| g.clone()).unwrap_or_default();
 
     if !LISTENING.load(Ordering::SeqCst) {
-        detect_clap(app, state, level, &settings);
+        detect_clap(app, state, level, peak, &settings);
         return;
     }
     stream_utterance(app, state, level, samples, sample_rate, &settings);
 }
 
-fn detect_clap(app: &AppHandle, state: &AudioState, level: f32, settings: &ClapSettings) {
+fn detect_clap(app: &AppHandle, state: &AudioState, level: f32, peak: f32, settings: &ClapSettings) {
     let Ok(mut cap) = state.capture.lock() else { return };
     let floor = cap.noise_floor;
 
-    // Adaptive floor: slow attack up, slower decay down.
-    if level > floor {
-        cap.noise_floor = floor + (level - floor) * 0.02;
-    } else {
-        cap.noise_floor = floor * 0.999;
+    // Ambient update only. Never chase a clap transient into the noise floor,
+    // otherwise a loud first clap would bury a quiet second clap in the pair.
+    if level < clap_threshold(floor, settings.sensitivity) {
+        cap.noise_floor = if level > floor {
+            floor + (level - floor) * 0.05
+        } else {
+            floor * 0.9995
+        };
+        return;
     }
 
-    // Relative threshold on top of the floor, plus an absolute minimum.
-    let threshold = (floor * (2.0 + settings.sensitivity.clamp(0.0, 1.0) * 4.0)).max(0.02);
-    if level <= threshold {
+    // A clap is a sharp transient: its peak must clear the threshold AND stick
+    // out well above its own chunk RMS (rejects TV/music/fan).
+    if peak < clap_threshold(floor, settings.sensitivity) || peak < level * CLAP_TRANSIENT_RATIO {
         return;
     }
 
     let now = Instant::now();
+    if let Some(prev) = cap.last_clap_at {
+        if (now.duration_since(prev).as_millis() as u64) < CLAP_HOLD_MS {
+            return; // the same clap still ringing across chunks
+        }
+    }
+    cap.last_clap_at = Some(now);
+
+    let mut wake_now = false;
     if let Ok(mut times) = state.last_clap_times.lock() {
         times.push(now);
         times.retain(|t| now.duration_since(*t).as_millis() as u64 <= settings.window_ms);
         if times.len() >= settings.clap_count.max(1) {
             times.clear();
-            wake(app, state, settings);
+            wake_now = true;
         }
+    }
+    drop(cap); // release before wake() re-locks the capture mutex
+    if wake_now {
+        wake(app, state, settings);
     }
 }
 
@@ -366,5 +407,60 @@ pub fn force_wake(app: &AppHandle) {
     if let Some(state) = app.try_state::<AudioState>() {
         let settings = state.settings.lock().map(|g| g.clone()).unwrap_or_default();
         wake(app, &state, &settings);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn quiet_clap_clears_threshold_in_quiet_room() {
+        // Silent room: floor settles near CLAP_ABS_MIN, not the old 0.02.
+        let threshold = clap_threshold(0.0008, 0.5);
+        assert!(threshold < 0.02, "old absolute floor would block quiet claps");
+        let quiet_clap_peak = 0.008; // soft clap RMS ~0.004, peak ~0.008
+        assert!(quiet_clap_peak > threshold);
+    }
+
+    #[test]
+    fn sensitivity_direction_lowers_threshold() {
+        let quiet = clap_threshold(0.01, 1.0);
+        let loud = clap_threshold(0.01, 0.0);
+        assert!(quiet < loud, "higher sensitivity must mean a lower threshold");
+        assert!((quiet - 0.01).abs() < 1e-6); // sens=1.0 -> 1.0x floor
+        assert!((loud - 0.03).abs() < 1e-6); // sens=0.0 -> 3.0x floor
+    }
+
+    #[test]
+    fn ambient_noise_scales_threshold() {
+        let quiet_room = clap_threshold(0.0005, 0.5);
+        let noisy_room = clap_threshold(0.02, 0.5);
+        assert!(noisy_room > quiet_room, "louder room needs louder claps");
+    }
+
+    #[test]
+    fn rms_and_peak_of_clap_like_signal() {
+        // A sharp transient inside a chunk: peak >> chunk RMS.
+        let mut chunk = vec![0.0001f32; 4096];
+        chunk[2048] = 0.5;
+        chunk[2049] = 0.5;
+        chunk[2050] = 0.4;
+        let lvl = rms(&chunk);
+        let peak = chunk.iter().fold(0f32, |m, s| s.abs().max(m));
+        assert!(peak >= lvl * CLAP_TRANSIENT_RATIO, "clap must be transient-peaky");
+        assert!(peak > clap_threshold(lvl, 0.5));
+    }
+
+    #[test]
+    fn sustained_noise_fails_transient_test() {
+        // Steady loud tone: high RMS, but peak is only ~sqrt(2) x RMS.
+        let chunk: Vec<f32> = (0..4096).map(|i| (i as f32 * 0.02).sin() * 0.1).collect();
+        let lvl = rms(&chunk);
+        let peak = chunk.iter().fold(0f32, |m, s| s.abs().max(m));
+        assert!(
+            peak < lvl * CLAP_TRANSIENT_RATIO,
+            "steady tone must not pass as a clap transient"
+        );
     }
 }

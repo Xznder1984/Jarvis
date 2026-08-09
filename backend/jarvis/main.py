@@ -264,7 +264,7 @@ async def _apply_settings(assistant: Assistant, payload: dict[str, Any], send: A
             {
                 "clap_count": int(assistant.config.get_int("CLAP_COUNT", 2)),
                 "window_ms": int(assistant.config.get_int("CLAP_WINDOW_MS", 1200)),
-                "sensitivity": float(assistant.config.get_float("CLAP_SENSITIVITY", 0.35)),
+                "sensitivity": float(assistant.config.get_float("CLAP_SENSITIVITY", 0.5)),
                 "grace_ms": int(assistant.config.get_int("CLAP_GRACE_MS", 2200)),
                 "silence_ms": int(assistant.config.get_int("UTTERANCE_SILENCE_MS", 900)),
                 "max_utterance_ms": int(assistant.config.get_int("UTTERANCE_MAX_MS", 15000)),
