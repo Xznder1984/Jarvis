@@ -109,6 +109,11 @@ class ProviderRouter:
 
     def _load_priority(self) -> list[str]:
         order = self._config.get("PROVIDER_PRIORITY")
+        if isinstance(order, str):
+            try:
+                order = json.loads(order)
+            except json.JSONDecodeError:
+                order = None
         if isinstance(order, list) and order:
             return [p for p in order if p in self.providers]
         return _default_priority()

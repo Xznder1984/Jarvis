@@ -91,6 +91,8 @@ class Assistant:
         self._buffer = bytearray()
         self._buffer_rate = 16000
         self._listening = False
+        self._idle_task: asyncio.Task | None = None
+        self._idle_armed = False
 
     @property
     def buffer(self) -> bytearray:
@@ -129,7 +131,7 @@ class Assistant:
     # --------------------------------------------------------------- events
     def set_terms_accepted(self) -> None:
         self.terms_accepted = True
-        self.config.save_settings({**self.config.settings, "TERMS_ACCEPTED": True})
+        self.config.update({"TERMS_ACCEPTED": True})
 
     def on_audio_chunk(self, payload: dict[str, Any]) -> None:
         """Buffer streaming PCM from the shell for endpoint STT."""
@@ -144,9 +146,45 @@ class Assistant:
     def reset_buffer(self) -> None:
         self._buffer.clear()
 
+    # ------------------------------------------------------ idle / power-save
+    def _cancel_idle_timer(self) -> None:
+        if self._idle_task is not None:
+            self._idle_task.cancel()
+            self._idle_task = None
+        self._idle_armed = False
+
+    def _arm_idle_timer(self) -> None:
+        """After a session ends, optionally sleep/shut down after the idle timeout."""
+        self._cancel_idle_timer()
+        timeout_ms = self.config.get_int("IDLE_TIMEOUT_MS", 0)
+        action = str(self.config.get("IDLE_ACTION", "off"))
+        if timeout_ms <= 0 or action not in ("sleep", "shutdown"):
+            return
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return
+        self._idle_armed = True
+        self._idle_task = loop.create_task(self._idle_tick(timeout_ms, action))
+
+    async def _idle_tick(self, timeout_ms: int, action: str) -> None:
+        try:
+            await asyncio.sleep(timeout_ms / 1000.0)
+        except asyncio.CancelledError:
+            return
+        if not self._idle_armed or self._listening:
+            return
+        activity.info(f"Idle timeout reached; triggering {action}")
+        logger.info("Idle timeout (%d ms) -> %s", timeout_ms, action)
+        if action == "sleep":
+            self.actions.sleep()
+        elif action == "shutdown":
+            self.actions.shutdown()
+
     # -------------------------------------------------------------- main turn
     async def handle_wake(self, payload: dict[str, Any]) -> None:
         method = payload.get("method", "clap")
+        self._cancel_idle_timer()
         await self._emit(ACTIVITY, {"level": "info", "message": f"Wake detected ({method})"})
         await self.set_state("listening")
         self._listening = True
@@ -157,6 +195,7 @@ class Assistant:
         self._listening = False
         await self.set_state("idle")
         self.reset_buffer()
+        self._arm_idle_timer()
 
     async def handle_final_utterance(self, wav_bytes: bytes) -> None:
         """Process a complete spoken turn: STT -> tools -> LLM -> TTS."""
@@ -191,7 +230,13 @@ class Assistant:
             reply_text = await self._llm_reply(text)
 
         await self.speak(reply_text)
-        await self.set_state(self.modes.mode == "coding" and "listening" or "idle")
+        if self.modes.mode == "coding":
+            self._listening = True
+            await self.set_state("listening")
+        else:
+            self._listening = False
+            await self.set_state("idle")
+            self._arm_idle_timer()
 
     async def _run_tool_intent(self, text: str) -> str | None:
         """Handle explicit capabilities before calling the LLM."""
@@ -246,19 +291,40 @@ class Assistant:
         # Strip fences from the spoken text.
         return _strip_fences(reply)
 
+    async def _execute_embedded_actions(self, reply: str) -> None:
+        """Extract and dispatch ```json {"action": ...} blocks from an LLM reply."""
+        import json
 
-async def _execute_embedded_actions(reply: str) -> None:
-    """Extract and dispatch ```json {"action": ...} blocks from an LLM reply."""
-    for block in re.findall(r"```json\s*(\{.*?\})\s*```", reply, re.DOTALL):
-        try:
-            import json
-
-            action = json.loads(block)
-        except json.JSONDecodeError:
-            continue
-        name = action.get("action")
-        if name:
+        for block in re.findall(r"```json\s*(\{.*?\})\s*```", reply, re.DOTALL):
+            try:
+                action = json.loads(block)
+            except json.JSONDecodeError:
+                logger.warning("Dropping unparsable action block")
+                continue
+            name = action.get("action")
+            if not name:
+                continue
+            handler = _ACTION_DISPATCH.get(name)
+            if handler is None:
+                logger.warning("LLM requested unknown action '%s'", name)
+                continue
             logger.info("LLM requested action: %s", name)
+            activity.info(f"Executing action: {name}")
+            try:
+                result = handler(self.actions, action.get("args", {}))
+                logger.info("Action '%s' result: %s", name, result)
+            except Exception as exc:  # noqa: BLE001
+                activity.error(f"Action '{name}' failed: {exc}")
+
+
+_ACTION_DISPATCH = {
+    "open_app": lambda actions, args: actions.open_app(str(args.get("app", ""))),
+    "open_path": lambda actions, args: actions.open_path(str(args.get("path", ""))),
+    "sleep": lambda actions, _args: actions.sleep(),
+    "shutdown": lambda actions, _args: actions.shutdown(),
+    "screen_capture": lambda actions, _args: actions.screen_capture(),
+    "system_info": lambda actions, _args: actions.system_info(),
+}
 
 
 def _is_sleep_command(text: str) -> bool:

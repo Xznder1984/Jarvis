@@ -31,6 +31,12 @@ PROVIDER_UPDATE = "provider_update"
 MODE_UPDATE = "mode_update"
 ACTION_REQUEST = "action_request"
 
+# --- Logging / settings (bidirectional) ---
+LOG = "log"
+SETTINGS_UPDATE = "settings_update"  # frontend -> backend (flat settings map)
+SETTINGS = "settings"                # backend -> frontend (masked settings)
+CLAP_SETTINGS = "clap_settings"      # backend -> shell (voice capture config)
+
 # --- Payload types ---
 MSG_TYPES: set[str] = {
     AUDIO_CHUNK,
@@ -45,6 +51,10 @@ MSG_TYPES: set[str] = {
     PROVIDER_UPDATE,
     MODE_UPDATE,
     ACTION_REQUEST,
+    LOG,
+    SETTINGS_UPDATE,
+    SETTINGS,
+    CLAP_SETTINGS,
 }
 
 

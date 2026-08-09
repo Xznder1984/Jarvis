@@ -55,3 +55,14 @@ class SystemActions:
 
     def screen_capture(self) -> Any:
         return self._request("screen_capture", {})
+
+    def system_info(self) -> Any:
+        import platform as _platform
+
+        info = {
+            "os": _platform.system(),
+            "version": _platform.release(),
+            "hostname": _platform.node(),
+            "machine": _platform.machine(),
+        }
+        return {"system_info": info}
