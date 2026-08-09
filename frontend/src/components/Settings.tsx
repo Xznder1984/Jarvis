@@ -1,20 +1,22 @@
 import { useState } from "react";
+import type { SettingsMap } from "../types";
 
 interface SettingsProps {
+  initial: SettingsMap;
   onClose: () => void;
-  onSave: (settings: Record<string, string>) => void;
+  onSave: (settings: SettingsMap) => void;
 }
 
 const PROVIDERS = [
-  { key: "GROQ_API_KEY", label: "Groq", env: "GROQ_API_KEY" },
-  { key: "NVIDIA_API_KEY", label: "NVIDIA NIM", env: "NVIDIA_API_KEY" },
-  { key: "CEREBRAS_API_KEY", label: "Cerebras", env: "CEREBRAS_API_KEY" },
-  { key: "OPENCODE_ZEN_API_KEY", label: "OpenCode Zen", env: "OPENCODE_ZEN_API_KEY" },
-  { key: "OLLAMA_CLOUD_API_KEY", label: "Ollama Cloud", env: "OLLAMA_CLOUD_API_KEY" },
-  { key: "FISH_AUDIO_API_KEY", label: "Fish Audio (TTS)", env: "FISH_AUDIO_API_KEY" },
+  { key: "GROQ_API_KEY", label: "Groq" },
+  { key: "NVIDIA_API_KEY", label: "NVIDIA NIM" },
+  { key: "CEREBRAS_API_KEY", label: "Cerebras" },
+  { key: "OPENCODE_ZEN_API_KEY", label: "OpenCode Zen" },
+  { key: "OLLAMA_CLOUD_API_KEY", label: "Ollama Cloud" },
+  { key: "FISH_AUDIO_API_KEY", label: "Fish Audio (TTS)" },
 ];
 
-const TEXT_FIELDS = [
+const TEXT_FIELDS: FieldDef[] = [
   { key: "WAKE_PHRASE", label: "Wake phrase", placeholder: "jarvis" },
   { key: "WAKE_RESPONSE", label: "Wake response", placeholder: "Ready at any moment, {honorific}." },
   { key: "HONORIFIC", label: "Honorific", placeholder: "sir" },
@@ -22,23 +24,51 @@ const TEXT_FIELDS = [
   { key: "LOCAL_TTS_VOICE", label: "Local TTS voice", placeholder: "Samantha" },
 ];
 
-const NUM_FIELDS = [
+const NUM_FIELDS: FieldDef[] = [
   { key: "CLAP_COUNT", label: "Clap count to wake", default: "2" },
   { key: "CLAP_WINDOW_MS", label: "Clap detection window (ms)", default: "1200" },
   { key: "IDLE_TIMEOUT_MS", label: "Idle timeout (ms, 0 = off)", default: "0" },
 ];
 
-export function Settings({ onClose, onSave }: SettingsProps) {
+interface FieldDef {
+  key: string;
+  label: string;
+  placeholder?: string;
+  default?: string;
+}
+
+const DEFAULT_PRIORITY = ["groq", "nvidia", "cerebras", "opencode_zen", "ollama_cloud"];
+
+function asString(v: unknown, def: string): string {
+  if (v === undefined || v === null) return def;
+  return String(v);
+}
+
+export function Settings({ initial, onClose, onSave }: SettingsProps) {
   const [apiKeys, setApiKeys] = useState<Record<string, string>>({});
-  const [fields, setFields] = useState<Record<string, string>>({});
-  const [priority, setPriority] = useState<string[]>([
-    "groq",
-    "nvidia",
-    "cerebras",
-    "opencode_zen",
-    "ollama_cloud",
-  ]);
-  const [sleepAction, setSleepAction] = useState<"off" | "sleep" | "shutdown">("off");
+  const [fields, setFields] = useState<Record<string, string>>(() => {
+    const out: Record<string, string> = {};
+    for (const f of [...TEXT_FIELDS, ...NUM_FIELDS]) {
+      out[f.key] = asString(initial[f.key], f.placeholder ?? f.default ?? "");
+    }
+    return out;
+  });
+  const [priority, setPriority] = useState<string[]>(() => {
+    const raw = initial.PROVIDER_PRIORITY;
+    if (Array.isArray(raw)) return (raw as string[]).filter((p) => p);
+    if (typeof raw === "string") {
+      try {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) return parsed as string[];
+      } catch {
+        /* ignore */
+      }
+    }
+    return DEFAULT_PRIORITY;
+  });
+  const [sleepAction, setSleepAction] = useState<"off" | "sleep" | "shutdown">(
+    (initial.IDLE_ACTION as "off" | "sleep" | "shutdown") ?? "off"
+  );
 
   const setField = (key: string, value: string) => setFields((f) => ({ ...f, [key]: value }));
   const setKey = (key: string, value: string) => setApiKeys((f) => ({ ...f, [key]: value }));
@@ -52,10 +82,10 @@ export function Settings({ onClose, onSave }: SettingsProps) {
   };
 
   const handleSave = () => {
-    const settings: Record<string, string> = {
+    const settings: SettingsMap = {
       ...apiKeys,
       ...fields,
-      PROVIDER_PRIORITY: JSON.stringify(priority),
+      PROVIDER_PRIORITY: priority,
       IDLE_ACTION: sleepAction,
     };
     onSave(settings);
@@ -71,12 +101,15 @@ export function Settings({ onClose, onSave }: SettingsProps) {
           <h3>API Keys</h3>
           {PROVIDERS.map((p) => (
             <label key={p.key} className="field">
-              <span>{p.label}</span>
+              <span>
+                {p.label}
+                {initial[p.key] === true && <em className="key-set"> · saved</em>}
+              </span>
               <input
                 type="password"
-                placeholder="••••••••"
-                value={apiKeys[p.env] ?? ""}
-                onChange={(e) => setKey(p.env, e.target.value)}
+                placeholder={initial[p.key] === true ? "•••••••• (saved)" : "Enter key"}
+                value={apiKeys[p.key] ?? ""}
+                onChange={(e) => setKey(p.key, e.target.value)}
               />
             </label>
           ))}

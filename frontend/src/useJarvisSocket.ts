@@ -58,7 +58,18 @@ export function useJarvisSocket(handlers: Handlers) {
             h.onMode(p.mode as "normal" | "coding");
             break;
           case "say":
-            h.onSay(p.text as string, p.provider as string);
+            h.onSay(p.text as string, (p.provider as string) ?? "", (p.audio as string) ?? undefined);
+            break;
+          case "log":
+            h.onLog({
+              level: p.level as "debug" | "info" | "warn" | "error",
+              message: (p.message as string) ?? "",
+              source: (p.source as "frontend" | "shell" | "backend") ?? "backend",
+              ts: (p.ts as number) ?? Date.now() / 1000,
+            });
+            break;
+          case "settings":
+            h.onSettings((p.settings as Record<string, unknown>) ?? {});
             break;
         }
       };
@@ -72,11 +83,15 @@ export function useJarvisSocket(handlers: Handlers) {
     };
   }, []);
 
-  const send = (env: Partial<Envelope>) => {
+  const send = (env: { type: string; payload?: Record<string, unknown> }) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify(env));
     }
   };
 
-  return { connected, presence, send };
+  const sendSettings = (settings: Record<string, unknown>) => {
+    send({ type: "settings_update", payload: { settings } });
+  };
+
+  return { connected, presence, send, sendSettings };
 }

@@ -175,12 +175,143 @@ body {
   color: var(--err);
 }
 
+/* ---------- Log panel ---------- */
+.log-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 11;
+}
+.log-panel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  width: min(720px, 94vw);
+  height: min(480px, 80vh);
+  display: flex;
+  flex-direction: column;
+  padding: 16px 20px;
+}
+.log-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+.log-panel-head h2 {
+  color: var(--accent-2);
+  font-size: 18px;
+}
+.log-filters {
+  display: flex;
+  gap: 6px;
+}
+.btn-sm {
+  padding: 4px 10px;
+  font-size: 12px;
+}
+.log-panel-body {
+  flex: 1;
+  overflow-y: auto;
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: var(--bg);
+}
+.log-empty {
+  color: var(--text-dim);
+  padding: 12px;
+  text-align: center;
+}
+.log-row {
+  display: flex;
+  gap: 8px;
+  padding: 2px 0;
+  border-bottom: 1px solid rgba(30, 40, 53, 0.4);
+}
+.log-row .log-time {
+  color: var(--text-dim);
+  flex: none;
+}
+.log-src {
+  flex: none;
+  min-width: 54px;
+  text-transform: uppercase;
+  font-size: 10px;
+  letter-spacing: 0.5px;
+  padding-top: 2px;
+}
+.log-src-backend {
+  color: var(--accent);
+}
+.log-src-shell {
+  color: var(--accent-2);
+}
+.log-src-frontend {
+  color: var(--warn);
+}
+.log-row .log-msg {
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+.log-row.log-debug .log-msg {
+  color: var(--text-dim);
+}
+.log-row.log-warn .log-msg {
+  color: var(--warn);
+}
+.log-row.log-error .log-msg {
+  color: var(--err);
+}
+.log-panel-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 10px;
+}
+.log-count {
+  color: var(--text-dim);
+  font-size: 12px;
+}
+
+/* ---------- Stop-speech button ---------- */
+.stop-speech {
+  position: fixed;
+  bottom: 18px;
+  left: 18px;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: 1px solid var(--err);
+  background: rgba(239, 68, 68, 0.15);
+  color: var(--err);
+  font-size: 14px;
+  cursor: pointer;
+  z-index: 5;
+}
+.stop-speech:empty {
+  display: none;
+}
+
+/* ---------- Settings: saved-key hint ---------- */
+.key-set {
+  font-style: normal;
+  font-size: 11px;
+  color: var(--accent-2);
+}
+
 /* ---------- Footer ---------- */
 .footer {
   padding: 10px 16px;
   border-top: 1px solid var(--border);
   display: flex;
   justify-content: flex-end;
+  gap: 8px;
 }
 
 /* ---------- Buttons ---------- */
