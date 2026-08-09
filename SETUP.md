@@ -90,6 +90,25 @@ See [PROVIDERS.md](PROVIDERS.md) for credit-check details.
 
 ## Running
 
+Quickest way — one command (starts the backend if needed, then the GUI, and
+stops the backend it started when you quit):
+
+```sh
+./start.sh
+```
+
+`./start.sh` options:
+
+```sh
+./start.sh               # backend (if not running) + cargo tauri dev
+./start.sh --binary      # backend + existing debug binary (fast, no rebuild)
+./start.sh --release     # backend + open the built .app bundle
+./start.sh --backend-only  # just the backend
+./start.sh --no-backend  # GUI only (backend assumed already running)
+```
+
+Or run the pieces by hand:
+
 Terminal 1 — backend:
 
 ```sh
