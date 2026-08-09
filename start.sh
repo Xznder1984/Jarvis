@@ -45,8 +45,21 @@ HEALTH_URL="http://$WS_HOST:$WS_PORT/api/health"
 
 [ -x backend/.venv/bin/uvicorn ] || die "Backend venv missing. Run ./install.sh first."
 
-# ---------------------------------------------------------------- backend
+# ---------------------------------------------------------------- helpers
 backend_running() { curl -fsS "$HEALTH_URL" >/dev/null 2>&1; }
+
+start_vite() {
+  info "Starting Vite dev server on http://localhost:1420 ..."
+  nohup npm run dev --prefix frontend >/tmp/jarvis-vite.log 2>&1 &
+  VITE_PID=$!
+  STARTED_VITE=1
+  local tries=0
+  until curl -fsS -o /dev/null http://localhost:1420/ || [ "$tries" -ge 20 ]; do
+    tries=$((tries + 1)); sleep 0.5
+  done
+  curl -fsS -o /dev/null http://localhost:1420/ || warn "Vite not answering yet — see /tmp/jarvis-vite.log"
+  info "Vite is up"
+}
 
 start_backend() {
   info "Starting backend on ws://$WS_HOST:$WS_PORT ..."
@@ -66,13 +79,17 @@ start_backend() {
   info "Backend is up ($HEALTH_URL)"
 }
 
-STARTED_BACKEND=0; BACKEND_PID=""; CLEANED=0
+STARTED_BACKEND=0; BACKEND_PID=""; STARTED_VITE=0; VITE_PID=""; CLEANED=0
 cleanup() {
   [ "$CLEANED" = "1" ] && return
   CLEANED=1
   if [ "$STARTED_BACKEND" = "1" ] && [ -n "$BACKEND_PID" ] && kill -0 "$BACKEND_PID" 2>/dev/null; then
     info "Stopping backend (pid $BACKEND_PID)..."
     kill "$BACKEND_PID" 2>/dev/null || true
+  fi
+  if [ "$STARTED_VITE" = "1" ] && [ -n "$VITE_PID" ] && kill -0 "$VITE_PID" 2>/dev/null; then
+    info "Stopping Vite (pid $VITE_PID)..."
+    kill "$VITE_PID" 2>/dev/null || true
   fi
 }
 trap cleanup EXIT INT TERM
@@ -96,6 +113,7 @@ case "$MODE" in
   binary)
     BIN="src-tauri/target/debug/jarvis"
     [ -x "$BIN" ] || die "No debug binary ($BIN). Run: cd src-tauri && cargo build"
+    start_vite
     info "Launching existing binary $BIN"
     "$BIN"
     ;;
@@ -106,7 +124,11 @@ case "$MODE" in
     open "$BUNDLE"
     info "GUI launched; this script stays alive to keep the backend running."
     info "Press Ctrl-C to stop the backend and exit."
-    while kill -0 "$BACKEND_PID" 2>/dev/null; do sleep 2; done
+    if [ -n "$BACKEND_PID" ]; then
+      while kill -0 "$BACKEND_PID" 2>/dev/null; do sleep 2; done
+    else
+      while true; do sleep 3600; done
+    fi
     ;;
   *)
     if cargo tauri --version >/dev/null 2>&1; then
