@@ -52,11 +52,14 @@ so forward/backward compatibility is preserved.
 
 | `type` | `payload` | Purpose |
 |---|---|---|
-| `audio_chunk` | `{ data: "<base64 pcm16>", sample_rate: 16000, channels: 1 }` | Streaming mic audio while in conversation mode. |
+| `audio_chunk` | `{ data: "<base64 pcm16>", sample_rate: 48000, channels: 1 }` | Streaming mic audio while in conversation mode. `sample_rate` is the **device** rate; the backend resamples to 16 kHz for Whisper. |
 | `wake_detected` | `{ method: "clap" \| "wake_word", meta: {} }` | Tells backend to enter listening mode. |
+| `utterance_end` | `{}` | A spoken turn finished (silence timeout or cap). Backend STTs the buffered audio. |
 | `session_end` | `{ reason: "timeout" \| "explicit" \| "idle" }` | Ends the current conversation turn. |
 | `system_action_result` | `{ action: "open_app", ok: bool, detail: "..." }` | Result of an OS action the backend requested. |
 | `terms_accepted` | `{ accepted: true, ts: 1712345678 }` | First-run T&C gate result (Rust persists acceptance). |
+| `log` | `{ level: "debug"\|"info"\|"warn"\|"error", message: "…", source: "shell" }` | Rust shell log record, aggregated by the backend broker. |
+| `settings_update` | `{ settings: { … } }` | Frontend → backend settings save (see Settings plumbing below). |
 
 ### Python → Rust
 
@@ -64,11 +67,47 @@ so forward/backward compatibility is preserved.
 |---|---|---|
 | `state_update` | `{ state: "idle" \| "listening" \| "thinking" \| "speaking", meta: {} }` | Drives the GUI presence indicator. |
 | `transcript` | `{ text: "…", partial: bool }` | Live STT text for the activity log/debug console. |
-| `say` | `{ text: "…", audio: "<base64 wav>", provider: "fish" \| "local" }` | Speak aloud; Rust plays the audio. |
+| `say` | `{ text: "…", audio: "<base64 wav>", provider: "fish" \| "local" }` | Speak aloud; the frontend decodes and plays the audio. |
 | `activity` | `{ level: "info" \| "warn" \| "error", message: "…" }` | Append to the in-app activity/log panel. |
 | `provider_update` | `{ provider: "groq", state: "active" \| "low" \| "exhausted", credit_estimate: 0.42 }` | Status-bar provider/credit indicator. |
 | `mode_update` | `{ mode: "normal" \| "coding" }` | Mode state machine change. |
 | `action_request` | `{ action: "open_app" \| "sleep" \| "shutdown" \| "screen_capture", args: {} }` | Asks Rust to perform an OS action. |
+| `log` | `{ level: "…", message: "…", source: "backend" }` | Live backend log record for the GUI log panel. |
+| `settings` | `{ settings: { …masked… } }` | Current settings snapshot (API key values replaced with booleans). |
+| `clap_settings` | `{ clap_count, window_ms, sensitivity, grace_ms, silence_ms, max_utterance_ms, vad_floor }` | Voice-capture config pushed to the Rust shell. |
+
+## Logging
+
+Logs from all three layers aggregate into one view:
+
+- **Backend** writes to `~/.jarvis/logs/jarvis-backend.log` (rotating, 5 MiB × 3),
+  with a redacting formatter so API keys never reach disk/console/GUI. The
+  backend broker (`jarvis/logs.py`) mirrors every Python record and every
+  `log` envelope received from the shell/frontend, and broadcasts them over WS
+  to the GUI log panel.
+- **Shell** writes to `~/.jarvis/logs/jarvis-shell.log` (size-rollover) and
+  forwards records to the backend broker over WS (`source: "shell"`). Its own
+  in-memory ring backs the `get_logs`/`clear_logs` Tauri commands.
+- **Frontend** hooks `console.*` and forwards entries to the backend broker
+  (`source: "frontend"`), keeping a local ring for pre-connect entries.
+- REST: `GET /api/logs`, `GET/POST /api/logs/level`.
+
+Secrets are redacted at each layer (Python formatter, Rust `logging::redact`,
+and the backend's `jarvis.logging_setup.redact`).
+
+## Settings plumbing
+
+The Settings UI edits are no longer cosmetic — they round-trip:
+
+```
+frontend --settings_update--> backend --config.update()--> ~/.jarvis/settings.json
+                              backend --clap_settings-----> Rust shell (voice capture config)
+                              backend --settings---------> frontend (masked confirmation)
+```
+
+`PROVIDER_PRIORITY` may arrive as a JSON array or string; the backend coerces
+both. Idle/power-saving is honored: `IDLE_TIMEOUT_MS` + `IDLE_ACTION`
+("sleep"/"shutdown") triggers an `action_request` when the app stays idle.
 
 ## Module map
 
