@@ -51,6 +51,53 @@ def save_settings(settings: dict[str, Any]) -> None:
     os.chmod(_SETTINGS_FILE, 0o600)
 
 
+# Keys the Settings UI owns that should also land in .env.
+_ENV_PERSISTED_KEYS = {
+    "NVIDIA_API_KEY",
+    "GROQ_API_KEY",
+    "CEREBRAS_API_KEY",
+    "OPENCODE_ZEN_API_KEY",
+    "OLLAMA_CLOUD_API_KEY",
+    "FISH_AUDIO_API_KEY",
+    "FISH_AUDIO_REFERENCE_ID",
+}
+
+
+def save_env_updates(updates: dict[str, Any]) -> Path:
+    """Merge UI-saved API keys into the repo `.env` file (in place).
+
+    Existing lines are updated in place, preserving comments and ordering;
+    new keys are appended. Returns the path that was written.
+    """
+    env_path = next((p for p in _candidate_env_files() if p.exists()), _REPO_ROOT / ".env")
+    payload = {k: v for k, v in updates.items() if k in _ENV_PERSISTED_KEYS and v is not None}
+    if not payload:
+        return env_path
+
+    text = env_path.read_text() if env_path.exists() else ""
+    lines = text.splitlines()
+    written: dict[str, str] = {}
+
+    out: list[str] = []
+    for line in lines:
+        key = line.split("=", 1)[0].strip()
+        if key in payload:
+            out.append(f"{key}={payload[key]}")
+            written[key] = payload[key]
+        else:
+            out.append(line)
+    for key, value in payload.items():
+        if key not in written:
+            out.append(f"{key}={value}")
+
+    env_path.write_text("\n".join(out) + ("\n" if out else ""))
+    try:
+        os.chmod(env_path, 0o600)
+    except OSError:
+        pass
+    return env_path
+
+
 class Config:
     """Unified view over .env + settings store.
 
@@ -86,6 +133,8 @@ class Config:
                 merged[key] = value
         self._settings = merged
         save_settings(merged)
+        # Persist API keys into the repo .env so they survive across installs.
+        save_env_updates(updates)
         # Mirror into the process env so `.env`-only lookups see them too.
         for key, value in merged.items():
             if isinstance(value, (str, int, float, bool)):

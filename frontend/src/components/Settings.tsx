@@ -21,7 +21,7 @@ const TEXT_FIELDS: FieldDef[] = [
   { key: "WAKE_RESPONSE", label: "Wake response", placeholder: "Ready at any moment, {honorific}." },
   { key: "HONORIFIC", label: "Honorific", placeholder: "sir" },
   { key: "FISH_AUDIO_REFERENCE_ID", label: "Fish Audio voice reference ID", placeholder: "" },
-  { key: "LOCAL_TTS_VOICE", label: "Local TTS voice", placeholder: "Samantha" },
+  { key: "LOCAL_TTS_VOICE", label: "Local TTS voice", placeholder: "Daniel" },
 ];
 
 const NUM_FIELDS: FieldDef[] = [

@@ -17,8 +17,10 @@ logger = logging.getLogger("jarvis.tts.local")
 
 
 class LocalTTS:
-    def __init__(self, voice: str | None = None, rate: int = 185) -> None:
-        self.voice = voice or os.environ.get("LOCAL_TTS_VOICE", "Samantha")
+    def __init__(self, voice: str | None = None, rate: int = 170) -> None:
+        # Daniel (en_GB) is the closest built-in macOS voice to JARVIS: a calm,
+        # measured British male. Override with LOCAL_TTS_VOICE to taste.
+        self.voice = voice or os.environ.get("LOCAL_TTS_VOICE", "Daniel")
         self.rate = int(os.environ.get("LOCAL_TTS_RATE", rate))
 
     def available(self) -> bool:

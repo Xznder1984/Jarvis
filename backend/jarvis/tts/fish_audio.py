@@ -19,11 +19,19 @@ logger = logging.getLogger("jarvis.tts.fish")
 
 _BASE_URL = "https://api.fish.audio"
 
+# JARVIS (MCU) voice from the reference "djbaril/jarvis" project — used as the
+# default when no reference id is configured.
+_JARVIS_REFERENCE_ID = "612b878b113047d9a770c069c8b4fdfe"
+
 
 class FishAudioTTS:
     def __init__(self, api_key: str | None = None, reference_id: str | None = None, model: str | None = None) -> None:
         self.api_key = api_key or os.environ.get("FISH_AUDIO_API_KEY", "")
-        self.reference_id = reference_id or os.environ.get("FISH_AUDIO_REFERENCE_ID", "") or None
+        self.reference_id = (
+            reference_id
+            or os.environ.get("FISH_AUDIO_REFERENCE_ID", "")
+            or _JARVIS_REFERENCE_ID
+        )
         self.model = model or os.environ.get("FISH_AUDIO_MODEL", "fishaudio/fish-speech-1.5")
 
     def available(self) -> bool:

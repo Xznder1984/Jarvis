@@ -1,7 +1,21 @@
 import { useEffect, useRef, useState } from "react";
 import type { Envelope, Handlers, Presence } from "./types";
 
-const WS_URL = `ws://${window.location.hostname || "127.0.0.1"}:8765/ws`;
+// When served over a tunnel/domain the backend and the page share an origin,
+// so the WS endpoint is ws(s)://<same-host>/ws. In Tauri/vite dev the backend
+// is a separate localhost process on the configured port.
+function resolveWsUrl(): string {
+  const proto = window.location.protocol;
+  const host = window.location.host;
+  const isTauri = proto === "tauri:" || proto === "tauri-fp";
+  const isDev = (proto === "http:" || proto === "https:") && host.startsWith("localhost:1420");
+  if (isTauri || isDev) {
+    return `ws://127.0.0.1:8765/ws`;
+  }
+  return `${proto === "https:" ? "wss" : "ws"}://${host}/ws`;
+}
+
+const WS_URL = resolveWsUrl();
 
 export function useJarvisSocket(handlers: Handlers) {
   const [connected, setConnected] = useState(false);

@@ -13,10 +13,13 @@ import asyncio
 import json
 import logging
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from jarvis.activity import activity
@@ -70,10 +73,17 @@ app = FastAPI(title="JARVIS Backend", version="0.2.0", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["tauri://localhost", "http://localhost:1420", "http://localhost:5173"],
+    allow_origin_regex=r"https?://(localhost|127\.0\.0\.1|.*\.ngrok\.app|.*\.ngrok-free\.app|.*\.tunnelmole\.net|.*\.tunnelmole\.io|.*\.trycloudflare\.com)(:\d+)?",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+# Serve the built React app from the backend so a single public URL (e.g. an
+# ngrok/tunnelmole tunnel) exposes both the UI and the WebSocket. Registered at
+# the end of this module (after the API + WS routes) so it can't shadow them.
+_DIST = Path(__file__).resolve().parent.parent.parent / "frontend" / "dist"
 
 
 # ------------------------------------------------------------------ REST
@@ -285,3 +295,25 @@ def _parse(raw: str) -> dict[str, Any]:
     except json.JSONDecodeError:
         return {}
     return env if isinstance(env, dict) else {}
+
+
+# ------------------------------------------------------------------ SPA
+# Registered last so the catch-all never shadows /api/* or /ws.
+@app.get("/", include_in_schema=False, response_model=None)
+async def index() -> FileResponse | dict[str, str]:
+    if (_DIST / "index.html").is_file():
+        return FileResponse(_DIST / "index.html")
+    return {"service": "jarvis-backend", "hint": "frontend not built — run `cd frontend && npm run build`"}
+
+
+app.mount("/assets", StaticFiles(directory=_DIST / "assets"), name="assets")
+
+
+@app.get("/{full_path:path}", include_in_schema=False, response_model=None)
+async def spa(full_path: str) -> FileResponse | dict[str, str]:
+    if not (_DIST / "index.html").is_file():
+        return {"error": "frontend not built"}
+    candidate = (_DIST / full_path).resolve()
+    if candidate.is_file() and candidate.is_relative_to(_DIST.resolve()):
+        return FileResponse(candidate)
+    return FileResponse(_DIST / "index.html")

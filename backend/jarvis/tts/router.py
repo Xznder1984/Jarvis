@@ -26,8 +26,8 @@ class TTSRouter:
             model=config.get("FISH_AUDIO_MODEL", "fishaudio/fish-speech-1.5"),
         )
         self.local = LocalTTS(
-            voice=config.get("LOCAL_TTS_VOICE", "Samantha"),
-            rate=config.get_int("LOCAL_TTS_RATE", 185),
+            voice=config.get("LOCAL_TTS_VOICE", "Daniel"),
+            rate=config.get_int("LOCAL_TTS_RATE", 170),
         )
 
     def synthesize(self, text: str) -> tuple[str, str]:

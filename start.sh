@@ -7,6 +7,7 @@
 #   ./start.sh --release       backend + open the built .app bundle
 #   ./start.sh --backend-only  just the backend (for running the GUI separately)
 #   ./start.sh --no-backend    GUI only (assumes the backend is already running)
+#   ./start.sh --remote        backend + public URL via ngrok/tunnelmole (use from anywhere)
 #
 # The backend it starts is shut down automatically when this script exits.
 
@@ -29,6 +30,7 @@ case "${1:-dev}" in
   --release)    MODE="release" ;;
   --backend-only) MODE="backend-only" ;;
   --no-backend) MODE="no-backend" ;;
+  --remote)     MODE="remote" ;;
   --help|-h)
     sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'
     exit 0
@@ -79,7 +81,7 @@ start_backend() {
   info "Backend is up ($HEALTH_URL)"
 }
 
-STARTED_BACKEND=0; BACKEND_PID=""; STARTED_VITE=0; VITE_PID=""; CLEANED=0
+STARTED_BACKEND=0; BACKEND_PID=""; STARTED_VITE=0; VITE_PID=""; STARTED_NGROK=0; NGROK_PID=""; CLEANED=0
 cleanup() {
   [ "$CLEANED" = "1" ] && return
   CLEANED=1
@@ -90,6 +92,10 @@ cleanup() {
   if [ "$STARTED_VITE" = "1" ] && [ -n "$VITE_PID" ] && kill -0 "$VITE_PID" 2>/dev/null; then
     info "Stopping Vite (pid $VITE_PID)..."
     kill "$VITE_PID" 2>/dev/null || true
+  fi
+  if [ "$STARTED_NGROK" = "1" ] && [ -n "$NGROK_PID" ] && kill -0 "$NGROK_PID" 2>/dev/null; then
+    info "Stopping tunnel (pid $NGROK_PID)..."
+    kill "$NGROK_PID" 2>/dev/null || true
   fi
 }
 trap cleanup EXIT INT TERM
@@ -110,6 +116,83 @@ fi
 
 # ---------------------------------------------------------------- GUI
 case "$MODE" in
+  remote)
+    # Build the frontend if the backend isn't already serving a dist, so the
+    # tunnel exposes both the UI and the WebSocket from one URL.
+    if [ ! -f frontend/dist/index.html ]; then
+      info "frontend/dist missing — building..."
+      ( cd frontend && npm run build ) || die "Frontend build failed"
+    fi
+    info "Public URL mode — backend serves UI at http://$WS_HOST:$WS_PORT"
+    if command -v cloudflared >/dev/null 2>&1; then
+      info "Starting Cloudflare quick tunnel for http://$WS_HOST:$WS_PORT ..."
+      nohup cloudflared tunnel --url "http://$WS_HOST:$WS_PORT" --no-autoupdate >/tmp/jarvis-cfd.log 2>&1 &
+      NGROK_PID=$!
+      STARTED_NGROK=1
+      local_tries=0
+      URL=""
+      while [ -z "$URL" ] && [ "$local_tries" -lt 30 ]; do
+        local_tries=$((local_tries + 1)); sleep 1
+        URL="$(grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com' /tmp/jarvis-cfd.log | head -1 || true)"
+      done
+      if [ -n "$URL" ]; then
+        info "🌍 Jarvis is live — share this URL: $URL"
+      else
+        warn "cloudflared started but no URL yet — see /tmp/jarvis-cfd.log"
+      fi
+    elif command -v tmole >/dev/null 2>&1 || command -v tunnelmole >/dev/null 2>&1; then
+      TM="${TUNNELMOLE_BIN:-$(command -v tmole || command -v tunnelmole)}"
+      info "Starting tunnelmole tunnel for http://$WS_HOST:$WS_PORT ..."
+      nohup "$TM" "$WS_PORT" >/tmp/jarvis-tmole.log 2>&1 &
+      NGROK_PID=$!
+      STARTED_NGROK=1
+      sleep 8
+      URL="$(grep -oE 'https://[a-z0-9-]+\.tunnelmole[a-z.-]*' /tmp/jarvis-tmole.log | head -1 || true)"
+      if [ -n "$URL" ]; then
+        info "🌍 Jarvis is live — share this URL: $URL"
+      else
+        warn "tunnelmole started but no URL detected yet — see /tmp/jarvis-tmole.log"
+      fi
+    elif command -v ngrok >/dev/null 2>&1; then
+      info "Starting ngrok tunnel for http://$WS_HOST:$WS_PORT ..."
+      nohup ngrok http "$WS_HOST:$WS_PORT" --log=stdout >/tmp/jarvis-ngrok.log 2>&1 &
+      NGROK_PID=$!
+      STARTED_NGROK=1
+      local_tries=0
+      URL=""
+      while [ -z "$URL" ] && [ "$local_tries" -lt 20 ]; do
+        local_tries=$((local_tries + 1)); sleep 0.75
+        URL="$(curl -fsS http://127.0.0.1:4040/api/tunnels 2>/dev/null | python3 -c 'import json,sys;d=json.load(sys.stdin);print(d["tunnels"][0]["public_url"] if d["tunnels"] else "")' 2>/dev/null || true)"
+      done
+      if [ -n "$URL" ]; then
+        info "🌍 Jarvis is live — share this URL: $URL"
+      else
+        warn "ngrok started but no public URL yet — see /tmp/jarvis-ngrok.log"
+      fi
+    elif command -v tmole >/dev/null 2>&1 || command -v tunnelmole >/dev/null 2>&1; then
+      TM="${TUNNELMOLE_BIN:-$(command -v tmole || command -v tunnelmole)}"
+      info "Starting tunnelmole tunnel for http://$WS_HOST:$WS_PORT ..."
+      nohup "$TM" "$WS_PORT" >/tmp/jarvis-tmole.log 2>&1 &
+      NGROK_PID=$!
+      STARTED_NGROK=1
+      sleep 8
+      URL="$(grep -oE 'https://[a-z0-9.-]+\.tunnelmole[a-z.-]*' /tmp/jarvis-tmole.log | head -1 || true)"
+      if [ -n "$URL" ]; then
+        info "🌍 Jarvis is live — share this URL: $URL"
+      else
+        warn "tunnelmole started but no URL detected yet — see /tmp/jarvis-tmole.log"
+      fi
+    else
+      warn "Neither ngrok nor tunnelmole found. Install one:"
+      warn "  brew install ngrok   # or: npm i -g tunnelmole"
+    fi
+    info "Public URL mode is running. Press Ctrl-C to stop and exit."
+    if [ -n "$BACKEND_PID" ]; then
+      while kill -0 "$BACKEND_PID" 2>/dev/null; do sleep 2; done
+    else
+      while true; do sleep 3600; done
+    fi
+    ;;
   binary)
     BIN="src-tauri/target/debug/jarvis"
     [ -x "$BIN" ] || die "No debug binary ($BIN). Run: cd src-tauri && cargo build"

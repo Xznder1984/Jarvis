@@ -83,7 +83,9 @@ export function Orb({ presence, connected, intensity = 1 }: OrbProps) {
       const dim = (conn ? 1 : 0.55) * intensity;
       const speed =
         prs === "speaking" ? 3.2 : prs === "listening" ? 2.2 : prs === "thinking" ? 1.5 : 0.55;
-      const base = size * 0.3;
+      // base is sized so the largest element (2.05*base) fits inside the canvas
+      // half-width — nothing gets clipped at the edges.
+      const base = size * 0.24;
 
       // Ambient dust field (twinkling).
       ctx.globalCompositeOperation = "source-over";
@@ -100,7 +102,7 @@ export function Orb({ presence, connected, intensity = 1 }: OrbProps) {
       ctx.globalCompositeOperation = "lighter";
 
       // Breathing halo.
-      const haloR = base * 2.3 * (1 + 0.06 * Math.sin(t * speed * 0.8));
+      const haloR = base * 1.9 * (1 + 0.06 * Math.sin(t * speed * 0.8));
       const halo = ctx.createRadialGradient(cx, cy, base * 0.4, cx, cy, haloR);
       halo.addColorStop(0, `rgba(${cr},${cg},${cb},${0.2 * dim})`);
       halo.addColorStop(1, "rgba(0,0,0,0)");
@@ -135,12 +137,13 @@ export function Orb({ presence, connected, intensity = 1 }: OrbProps) {
       // Spiral arms of energy dots.
       const arms = 2;
       const armTurn = prs === "thinking" ? 2.6 : 2.1;
+      const armMax = base * 1.6;
       for (let arm = 0; arm < arms; arm++) {
         const phase = arm * Math.PI + t * speed * 0.6;
         for (let i = 0; i < 96; i++) {
           const f = i / 96;
           const ang = f * armTurn * Math.PI + phase;
-          const rad = base * 0.55 + f * (base * 1.9 - base * 0.55);
+          const rad = base * 0.55 + f * (armMax - base * 0.55);
           const px = cx + Math.cos(ang) * rad;
           const py = cy + Math.sin(ang) * rad;
           const alpha = (1 - f) * (0.35 + 0.3 * Math.sin(t * 3 + f * 9 + arm)) * dim;
@@ -154,9 +157,9 @@ export function Orb({ presence, connected, intensity = 1 }: OrbProps) {
 
       // Tilted gyro rings (3D foreshortened ellipses).
       const rings = [
-        { tilt: 0.45, rot: t * speed * 0.5, size: 1.55 },
-        { tilt: -0.8, rot: -t * speed * 0.36 + 1.3, size: 1.95 },
-        { tilt: 1.15, rot: t * speed * 0.24 + 2.6, size: 2.4 },
+        { tilt: 0.45, rot: t * speed * 0.5, size: 1.25 },
+        { tilt: -0.8, rot: -t * speed * 0.36 + 1.3, size: 1.6 },
+        { tilt: 1.15, rot: t * speed * 0.24 + 2.6, size: 1.95 },
       ];
       for (const ring of rings) {
         ctx.save();
@@ -178,7 +181,7 @@ export function Orb({ presence, connected, intensity = 1 }: OrbProps) {
       // Orbiting sparks (two counter-rotating rings).
       for (let ring = 0; ring < 2; ring++) {
         const n = 14;
-        const ringR = base * (ring === 0 ? 1.7 : 2.2);
+        const ringR = base * (ring === 0 ? 1.35 : 1.75);
         const spin = (ring === 0 ? 1 : -0.7) * speed * 0.5 + 0.5;
         for (let i = 0; i < n; i++) {
           const ang = (i / n) * Math.PI * 2 + t * spin + ring;
@@ -197,7 +200,7 @@ export function Orb({ presence, connected, intensity = 1 }: OrbProps) {
       if (prs === "speaking") {
         for (let i = 0; i < 3; i++) {
           const ph = (t * speed * 0.9 + i / 3) % 1;
-          const rr = base * (0.9 + ph * 2.6);
+          const rr = base * (0.75 + ph * 1.1);
           const a = (1 - ph) * 0.5 * dim;
           ctx.strokeStyle = `rgba(255,255,255,${clamp01(a)})`;
           ctx.lineWidth = (1 - ph) * 2 + 0.4;
