@@ -225,7 +225,8 @@ class Config:
                 out[key] = value
         # Always include known defaults even if unset.
         out.setdefault("STT_MODEL", "base")
-        out.setdefault("LOCAL_TTS_VOICE", "Samantha")
+        out.setdefault("LOCAL_TTS_VOICE", "Daniel")
+        out.setdefault("LOCAL_TTS_RATE", 170)
         out.setdefault("WAKE_PHRASE", self.get("WAKE_PHRASE", "jarvis"))
         out.setdefault("HONORIFIC", self.get("HONORIFIC", "sir"))
         out.setdefault("IDLE_TIMEOUT_MS", self.get("IDLE_TIMEOUT_MS", 0))
