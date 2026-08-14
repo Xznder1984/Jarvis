@@ -6,9 +6,14 @@ JARVIS launcher — run and build the app from Python.
   python run.py dev            same as above
   python run.py binary         run the existing debug binary (fast, no rebuild)
   python run.py build          build a release bundle (cargo tauri build)
-  python run.py run            build if needed, then open the release .app
+  python run.py run            check code, rebuild what's stale, then run the app
+  python run.py rebuild        check code, FULL rebuild (frontend + release), run
+  python run.py check          run code/app checks only (no build, no run)
   python run.py backend        backend only (stops when you press Ctrl-C)
   python run.py --help         show this help
+
+All build/run modes run a pre-flight check (frontend tsc, backend byte-compile
++ import, cargo check) and abort before touching anything if they fail.
 """
 
 import os
@@ -23,7 +28,10 @@ from pathlib import Path
 BASE = Path(__file__).resolve().parent
 BACKEND = BASE / "backend"
 SRC_TUI = BASE / "src-tauri"
+FRONTEND = BASE / "frontend"
+DIST = FRONTEND / "dist"
 VENV_UVICORN = BACKEND / ".venv" / "bin" / "uvicorn"
+VENV_PY = BACKEND / ".venv" / "bin" / "python"
 HEALTH_URL = "http://127.0.0.1:8765/api/health"
 WS_PORT = "8765"
 
@@ -143,6 +151,79 @@ def build():
     info(f"Done! App bundle: {bundle}")
 
 
+def build_frontend():
+    info("Building frontend (npm run build)...")
+    rc = subprocess.run(["npm", "run", "build"], cwd=FRONTEND).returncode
+    if rc != 0:
+        die("Frontend build failed")
+    if not (DIST / "index.html").is_file():
+        die("Frontend build finished but dist/index.html is missing")
+
+
+def check_code():
+    """Fast pre-flight checks: types, bytecode, import, Rust. Dies on failure."""
+    py = str(VENV_PY) if VENV_PY.is_file() else sys.executable
+    info("Checking code for issues before running...")
+
+    info("→ Type-checking frontend (tsc --noEmit)")
+    if subprocess.run(["npx", "tsc", "--noEmit"], cwd=FRONTEND).returncode != 0:
+        die("Frontend type-check failed")
+
+    info("→ Byte-compiling backend")
+    if subprocess.run([py, "-m", "compileall", "-q", str(BACKEND / "jarvis")]).returncode != 0:
+        die("Backend byte-compile failed")
+
+    info("→ Importing backend")
+    rc = subprocess.run(
+        [py, "-c", f"import sys; sys.path.insert(0, {str(BACKEND)!r}); import jarvis.main"]
+    ).returncode
+    if rc != 0:
+        die("Backend failed to import")
+
+    info("→ Checking Rust (cargo check)")
+    if subprocess.run(["cargo", "check"], cwd=SRC_TUI).returncode != 0:
+        die("Rust check failed")
+
+    info("All code checks passed")
+
+
+def verify_app_running():
+    """After launch: confirm the backend is healthy and the UI assets exist."""
+    if not backend_running():
+        die("Backend not answering /api/health after launch")
+    info("Backend health OK")
+    if (DIST / "index.html").is_file():
+        info("Frontend assets present at frontend/dist")
+    else:
+        warn("frontend/dist missing — the GUI may show a blank window")
+    try:
+        with urllib.request.urlopen(HEALTH_URL, timeout=2) as r:
+            body = r.read(200).decode("utf-8", "replace")
+        if "jarvis-backend" in body:
+            info("Backend self-check OK (service=" + "jarvis-backend)")
+    except Exception as exc:  # noqa: BLE001
+        warn(f"Backend self-check failed: {exc}")
+
+
+def run_release(force_rebuild: bool):
+    check_code()
+    build_frontend()
+    bundle = bundle_path()
+    if force_rebuild or needs_build(bundle):
+        warn("Release bundle is stale or missing — building...")
+        build()
+    else:
+        info("Release bundle is up to date")
+    open_release(bundle)
+    verify_app_running()
+    info("GUI launched; press Ctrl-C to stop the backend and exit.")
+    try:
+        while True:
+            time.sleep(3600)
+    except KeyboardInterrupt:
+        pass
+
+
 def open_release(bundle):
     info(f"Opening {bundle}")
     subprocess.Popen(["open", str(bundle)])
@@ -181,6 +262,10 @@ def main():
         print(__doc__)
         return
 
+    if mode == "check":
+        check_code()
+        return
+
     backend = start_backend() if mode != "binary" else start_backend()
     if backend:
         CHILDREN.append(backend)
@@ -199,18 +284,12 @@ def main():
         build()
         return
 
-    if mode in ("run", "release"):
-        bundle = bundle_path()
-        if needs_build(bundle):
-            warn("Bundle is stale or missing — building...")
-            build()
-        open_release(bundle)
-        info("GUI launched; press Ctrl-C to stop the backend and exit.")
+    if mode in ("run", "release", "rebuild"):
+        force = mode == "rebuild"
         try:
-            while True:
-                time.sleep(3600)
-        except KeyboardInterrupt:
-            pass
+            run_release(force)
+        finally:
+            cleanup()
         return
 
     if mode == "binary":

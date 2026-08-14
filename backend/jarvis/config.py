@@ -1,8 +1,10 @@
 """Configuration loading for the JARVIS backend.
 
-Supports both a gitignored local settings store (written by the Settings UI
-and mirrored by the Tauri shell) and a plain `.env` file for power users.
-The `.env` file takes precedence for any key it defines.
+Secrets (API keys, voice reference ids) are strictly DEVICE-LOCAL: they live in
+`~/.jarvis/` (settings.json and, optionally, `~/.jarvis/.env`) and are never
+written into the repo. The repo `.env` is reserved for shared non-secret
+defaults. Precedence: process env > device `~/.jarvis/.env` > repo `.env` >
+settings store > default.
 """
 from __future__ import annotations
 
@@ -19,19 +21,22 @@ _REPO_ROOT = _BACKEND_DIR.parent
 _HOME_DIR = Path.home() / ".jarvis"
 _SETTINGS_FILE = _HOME_DIR / "settings.json"
 
+# The only `.env` file UI saves may write: device-local, never the repo.
+_DEVICE_ENV_FILE = _HOME_DIR / ".env"
 
-def _candidate_env_files() -> list[Path]:
-    return [
-        _REPO_ROOT / ".env",
-        _BACKEND_DIR / ".env",
-        _HOME_DIR / ".env",
-    ]
+
+def _repo_env_files() -> list[Path]:
+    return [_REPO_ROOT / ".env", _BACKEND_DIR / ".env"]
 
 
 def load_env() -> None:
-    for p in _candidate_env_files():
+    # Shared repo defaults first (first definition wins); the device-local
+    # `~/.jarvis/.env` then overrides any overlap so secrets stay per-device.
+    for p in _repo_env_files():
         if p.exists():
             load_dotenv(p)
+    if _DEVICE_ENV_FILE.exists():
+        load_dotenv(_DEVICE_ENV_FILE, override=True)
 
 
 def load_settings() -> dict[str, Any]:
@@ -64,13 +69,14 @@ _ENV_PERSISTED_KEYS = {
 
 
 def save_env_updates(updates: dict[str, Any]) -> Path:
-    """Merge UI-saved API keys into the repo `.env` file (in place).
+    """Merge UI-saved API keys into the device-local `~/.jarvis/.env`.
 
-    Existing lines are updated in place, preserving comments and ordering;
-    new keys are appended. Returns the path that was written.
+    Secrets are written to the home directory so they never land in a repo
+    folder that could be copied, zipped, or synced to another machine.
+    Existing lines are updated in place; new keys are appended.
     """
-    env_path = next((p for p in _candidate_env_files() if p.exists()), _REPO_ROOT / ".env")
-    payload = {k: v for k, v in updates.items() if k in _ENV_PERSISTED_KEYS and v is not None}
+    env_path = _DEVICE_ENV_FILE
+    payload = {k: v for k, v in updates.items() if k in _ENV_PERSISTED_KEYS and v not in (None, "")}
     if not payload:
         return env_path
 
@@ -90,6 +96,7 @@ def save_env_updates(updates: dict[str, Any]) -> Path:
         if key not in written:
             out.append(f"{key}={value}")
 
+    _HOME_DIR.mkdir(parents=True, exist_ok=True)
     env_path.write_text("\n".join(out) + ("\n" if out else ""))
     try:
         os.chmod(env_path, 0o600)
@@ -109,10 +116,14 @@ class Config:
         self._settings = load_settings()
 
     def _lookup(self, key: str, default: Any = None) -> Any:
-        if key in os.environ:
-            return os.environ.get(key)
-        if key in self._settings:
-            return self._settings[key]
+        # Empty-string env values (e.g. repo .env placeholders) are treated as
+        # unset so a real device-local value or settings-store value can win.
+        env = os.environ.get(key)
+        if env not in (None, ""):
+            return env
+        store = self._settings.get(key)
+        if store not in (None, ""):
+            return store
         return default
 
     def update(self, updates: dict[str, Any]) -> None:

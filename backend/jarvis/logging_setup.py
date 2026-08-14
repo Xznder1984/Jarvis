@@ -58,7 +58,7 @@ def setup_logging(config: Config | None = None) -> str:
     """Configure the 'jarvis' logger tree. Idempotent; returns the log dir."""
     with _setup_lock:
         config = config or Config()
-        log_dir = Path(config.get("JARVIS_LOG_DIR", Path.home() / ".jarvis" / "logs"))
+        log_dir = Path(config.get("JARVIS_LOG_DIR", Path.home() / ".jarvis" / "logs")).expanduser()
         log_dir.mkdir(parents=True, exist_ok=True)
 
         level = config.log_level.upper()
