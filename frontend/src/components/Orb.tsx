@@ -53,11 +53,19 @@ export function Orb({ presence, connected, intensity = 1 }: OrbProps) {
     if (!ctx) return;
 
     let raf = 0;
-    const dpr = window.devicePixelRatio || 1;
-    const size = canvas.clientWidth;
-    canvas.width = size * dpr;
-    canvas.height = size * dpr;
-    ctx.scale(dpr, dpr);
+    let size = canvas.clientWidth;
+
+    const fitCanvas = () => {
+      const dpr = window.devicePixelRatio || 1;
+      size = canvas.clientWidth || size;
+      canvas.width = Math.max(1, Math.round(size * dpr));
+      canvas.height = Math.max(1, Math.round(size * dpr));
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    };
+    fitCanvas();
+
+    const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(fitCanvas) : null;
+    ro?.observe(canvas);
 
     const start = performance.now();
     let color: Rgb = PALETTES[presenceRef.current];
@@ -83,8 +91,8 @@ export function Orb({ presence, connected, intensity = 1 }: OrbProps) {
       const dim = (conn ? 1 : 0.55) * intensity;
       const speed =
         prs === "speaking" ? 3.2 : prs === "listening" ? 2.2 : prs === "thinking" ? 1.5 : 0.55;
-      // base is sized so the largest element (2.05*base) fits inside the canvas
-      // half-width — nothing gets clipped at the edges.
+      // base is sized so the largest element (halo peak ≈ 2.01*base, gyro rings
+      // 1.95*base) fits inside the canvas half-width — nothing gets clipped.
       const base = size * 0.24;
 
       // Ambient dust field (twinkling).
@@ -215,7 +223,10 @@ export function Orb({ presence, connected, intensity = 1 }: OrbProps) {
     };
 
     raf = requestAnimationFrame(draw);
-    return () => cancelAnimationFrame(raf);
+    return () => {
+      cancelAnimationFrame(raf);
+      ro?.disconnect();
+    };
   }, [intensity]);
 
   return (
