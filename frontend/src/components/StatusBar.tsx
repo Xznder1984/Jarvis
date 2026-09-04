@@ -9,22 +9,22 @@ interface StatusBarProps {
 }
 
 const PRESENCE_LABEL: Record<Presence, string> = {
-  idle: "Idle",
-  listening: "Listening",
-  thinking: "Thinking",
-  speaking: "Speaking",
+  idle: "STANDBY",
+  listening: "LISTENING",
+  thinking: "PROCESSING",
+  speaking: "TRANSMITTING",
 };
 
 export function StatusBar({ connected, presence, provider, credit, mode }: StatusBarProps) {
   return (
     <div className="status-bar">
-      <span className={`dot ${connected ? "dot-on" : "dot-off"}`} title={connected ? "Backend connected" : "Backend offline"} />
+      <span className={`dot ${connected ? "dot-on" : "dot-off"}`} title={connected ? "ONLINE" : "OFFLINE"} />
       <span className="status-label">{PRESENCE_LABEL[presence]}</span>
-      <span className="status-provider" title="Active provider">
-        {provider ? provider.toUpperCase() : "NO PROVIDER"}
-        {credit != null && <span className="credit"> ({Math.round(credit * 100)}%)</span>}
+      <span className="status-provider" title="PROVIDER">
+        {provider ? provider.toUpperCase() : "---"}
       </span>
-      <span className={`mode mode-${mode}`}>{mode === "coding" ? "CODE" : "NORMAL"}</span>
+      {credit != null && <span className="credit">{Math.round(credit * 100)}%</span>}
+      <span className={`mode mode-${mode}`}>{mode === "coding" ? "CODE" : "NORM"}</span>
     </div>
   );
 }

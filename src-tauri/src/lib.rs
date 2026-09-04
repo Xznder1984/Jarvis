@@ -37,6 +37,8 @@ pub fn run() {
             audio::start_listening,
             audio::stop_listening,
             audio::set_clap_settings,
+            audio::push_to_talk_start,
+            audio::push_to_talk_end,
             logging::get_logs,
             logging::clear_logs,
             platform::action_open_app,

@@ -30,6 +30,10 @@ ACTIVITY = "activity"
 PROVIDER_UPDATE = "provider_update"
 MODE_UPDATE = "mode_update"
 ACTION_REQUEST = "action_request"
+RESUME_LISTENING = "resume_listening"  # re-arm voice capture for the next turn
+
+# --- Frontend -> Backend (client-derived events) ---
+TTS_FINISHED = "tts_finished"  # audio playback complete; safe to re-arm listening
 
 # --- Logging / settings (bidirectional) ---
 LOG = "log"
@@ -51,6 +55,8 @@ MSG_TYPES: set[str] = {
     PROVIDER_UPDATE,
     MODE_UPDATE,
     ACTION_REQUEST,
+    RESUME_LISTENING,
+    TTS_FINISHED,
     LOG,
     SETTINGS_UPDATE,
     SETTINGS,

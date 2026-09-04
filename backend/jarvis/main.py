@@ -33,6 +33,7 @@ from jarvis.contract import (
     SETTINGS,
     SETTINGS_UPDATE,
     TERMS_ACCEPTED,
+    TTS_FINISHED,
     WAKE_DETECTED,
 )
 from jarvis.logging_setup import current_log_level, set_log_level, setup_logging
@@ -215,6 +216,9 @@ async def ws_endpoint(ws: WebSocket) -> None:
 
             elif msg_type == SESSION_END:
                 await assistant.handle_session_end(payload)
+
+            elif msg_type == TTS_FINISHED:
+                await assistant.handle_tts_finished()
 
             elif msg_type == TERMS_ACCEPTED:
                 assistant.set_terms_accepted()

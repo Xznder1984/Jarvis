@@ -400,6 +400,64 @@ fn send_ws(app: &AppHandle, msg_type: &str, payload: &serde_json::Value) -> Resu
     Ok(())
 }
 
+/// Push-to-talk: start capturing immediately (no wake/grace, skip VAD).
+#[tauri::command]
+pub fn push_to_talk_start(app: AppHandle) -> Result<(), String> {
+    if !CAPTURE_ON.load(Ordering::SeqCst) {
+        return Err("Audio capture not running".into());
+    }
+    if LISTENING.swap(true, Ordering::SeqCst) {
+        return Ok(()); // already listening
+    }
+    log::info!("push-to-talk started");
+    let now = Instant::now();
+    if let Some(state) = app.try_state::<AudioState>() {
+        if let Ok(mut cap) = state.capture.lock() {
+            cap.grace_until = None; // skip grace — stream immediately
+            cap.wake_deadline = Some(now + std::time::Duration::from_secs(60));
+            cap.utterance_started = true;
+            cap.utterance_start = Some(now);
+            cap.last_voice = Some(now);
+        }
+    }
+    let _ = app.emit("wake_detected", "ptt");
+    let _ = send_ws(&app, "wake_detected", &serde_json::json!({"method": "ptt"}));
+    Ok(())
+}
+
+/// Push-to-talk: stop capturing and send the utterance to the backend.
+#[tauri::command]
+pub fn push_to_talk_end(app: AppHandle) -> Result<(), String> {
+    log::info!("push-to-talk ended");
+    end_utterance(&app);
+    Ok(())
+}
+
+/// Re-arm listening WITHOUT speaking a wake response — used for continuous
+/// conversation. Streams immediately on voice (no clap requirement, no grace,
+/// fresh wake deadline so silence returns to clap mode).
+pub fn resume_listening(app: &AppHandle) {
+    if !CAPTURE_ON.load(Ordering::SeqCst) {
+        return;
+    }
+    if LISTENING.swap(true, Ordering::SeqCst) {
+        return; // already listening
+    }
+    log::info!("resuming listening (conversation mode)");
+    let now = Instant::now();
+    if let Some(state) = app.try_state::<AudioState>() {
+        let settings = state.settings.lock().map(|g| g.clone()).unwrap_or_default();
+        if let Ok(mut cap) = state.capture.lock() {
+            cap.grace_until = None;
+            cap.wake_deadline =
+                Some(now + std::time::Duration::from_millis(settings.grace_ms + settings.wake_timeout_ms));
+            cap.utterance_started = false;
+            cap.utterance_start = None;
+            cap.last_voice = None;
+        }
+    }
+}
+
 /// Emit a "wake_detected" style message (used when the wake phrase is heard —
 /// placeholder for future wake-word integration).
 #[allow(dead_code)]

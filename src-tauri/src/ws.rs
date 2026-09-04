@@ -131,6 +131,9 @@ async fn handle_inbound(app: &AppHandle, env: Value) {
             // Forward to the frontend unchanged.
             let _ = app.emit(&msg_type, payload);
         }
+        "resume_listening" => {
+            crate::audio::resume_listening(app);
+        }
         _ => {
             // Forward anything else to the frontend unchanged.
             let _ = app.emit(&msg_type, payload);

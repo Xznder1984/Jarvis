@@ -60,9 +60,7 @@ export function Settings({ initial, onClose, onSave }: SettingsProps) {
       try {
         const parsed = JSON.parse(raw);
         if (Array.isArray(parsed)) return parsed as string[];
-      } catch {
-        /* ignore */
-      }
+      } catch { /* ignore */ }
     }
     return DEFAULT_PRIORITY;
   });
@@ -95,7 +93,7 @@ export function Settings({ initial, onClose, onSave }: SettingsProps) {
   return (
     <div className="settings-overlay" onClick={onClose}>
       <div className="settings-panel" onClick={(e) => e.stopPropagation()}>
-        <h2>Settings</h2>
+        <h2>System Configuration</h2>
 
         <section>
           <h3>API Keys</h3>
@@ -103,7 +101,7 @@ export function Settings({ initial, onClose, onSave }: SettingsProps) {
             <label key={p.key} className="field">
               <span>
                 {p.label}
-                {initial[p.key] === true && <em className="key-set"> · saved</em>}
+                {initial[p.key] === true && <em className="key-set"> // STORED</em>}
               </span>
               <input
                 type="password"
@@ -155,7 +153,7 @@ export function Settings({ initial, onClose, onSave }: SettingsProps) {
         </section>
 
         <section>
-          <h3>Power Saving (opt-in, off by default)</h3>
+          <h3>Power Saving</h3>
           <label className="field">
             <span>When idle for the timeout</span>
             <select value={sleepAction} onChange={(e) => setSleepAction(e.target.value as "off" | "sleep" | "shutdown")}>
@@ -167,8 +165,8 @@ export function Settings({ initial, onClose, onSave }: SettingsProps) {
         </section>
 
         <div className="settings-actions">
-          <button className="btn" onClick={onClose}>Cancel</button>
-          <button className="btn btn-primary" onClick={handleSave}>Save</button>
+          <button className="btn" onClick={onClose}>CANCEL</button>
+          <button className="btn btn-primary" onClick={handleSave}>SAVE</button>
         </div>
       </div>
     </div>

@@ -5,7 +5,7 @@ interface ActivityLogProps {
 }
 
 function fmt(ts: number): string {
-  return new Date(ts * 1000).toLocaleTimeString();
+  return new Date(ts * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
 }
 
 export function ActivityLog({ items }: ActivityLogProps) {
@@ -19,7 +19,11 @@ export function ActivityLog({ items }: ActivityLogProps) {
             <span className="log-msg">{item.message}</span>
           </li>
         ))}
-        {items.length === 0 && <li className="log-info"><span className="log-msg">No activity yet.</span></li>}
+        {items.length === 0 && (
+          <li className="log-info">
+            <span className="log-msg" style={{ opacity: 0.3 }}>No activity yet.</span>
+          </li>
+        )}
       </ul>
     </div>
   );

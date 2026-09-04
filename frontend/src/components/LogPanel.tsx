@@ -11,7 +11,7 @@ const LEVEL_FILTERS: (LogLevel | "all")[] = ["all", "info", "warn", "error"];
 
 function fmt(ts: number): string {
   const d = new Date(ts * 1000);
-  return d.toLocaleTimeString();
+  return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
 }
 
 export function LogPanel({ items, onClose, onClear }: LogPanelProps) {
@@ -23,7 +23,7 @@ export function LogPanel({ items, onClose, onClear }: LogPanelProps) {
     <div className="log-overlay" onClick={onClose}>
       <div className="log-panel" onClick={(e) => e.stopPropagation()}>
         <div className="log-panel-head">
-          <h2>Logs</h2>
+          <h2>System Logs</h2>
           <div className="log-filters">
             {LEVEL_FILTERS.map((f) => (
               <button
@@ -31,14 +31,14 @@ export function LogPanel({ items, onClose, onClear }: LogPanelProps) {
                 className={`btn btn-sm ${filter === f ? "btn-primary" : ""}`}
                 onClick={() => setFilter(f)}
               >
-                {f}
+                {f.toUpperCase()}
               </button>
             ))}
-            <button className="btn btn-sm" onClick={onClear}>Clear</button>
+            <button className="btn btn-sm" onClick={onClear}>CLEAR</button>
           </div>
         </div>
         <div className="log-panel-body">
-          {visible.length === 0 && <div className="log-empty">No log entries.</div>}
+          {visible.length === 0 && <div className="log-empty">NO LOG ENTRIES</div>}
           {visible.map((item, i) => (
             <div key={i} className={`log-row log-${item.level}`}>
               <span className="log-time">{fmt(item.ts)}</span>
@@ -49,10 +49,10 @@ export function LogPanel({ items, onClose, onClear }: LogPanelProps) {
         </div>
         <div className="log-panel-foot">
           <span className="log-count">
-            {items.length} entries
-            {filter !== "all" && ` · filtered to ${filter}`}
+            {items.length} ENTRIES
+            {filter !== "all" && ` // FILTERED: ${filter.toUpperCase()}`}
           </span>
-          <button className="btn btn-sm" onClick={onClose}>Close</button>
+          <button className="btn btn-sm" onClick={onClose}>CLOSE</button>
         </div>
       </div>
     </div>

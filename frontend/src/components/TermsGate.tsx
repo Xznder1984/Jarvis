@@ -9,22 +9,22 @@ export function TermsGate({ onAccept }: TermsGateProps) {
 
   return (
     <div className="terms-gate">
-      <h1>JARVIS — Terms &amp; Conditions</h1>
+      <h1>J.A.R.V.I.S.</h1>
       <p className="terms-body">
-        JARVIS is a local, personal desktop assistant. By continuing you agree to the following:
+        Just A Rather Very Intelligent System — Personal Desktop Assistant
       </p>
       <ul>
-        <li><strong>Microphone access:</strong> JARVIS listens continuously for claps and wake phrases. Audio is processed locally (STT via faster-whisper) or sent to configured third-party providers for speech understanding.</li>
-        <li><strong>API usage:</strong> Conversation text may be sent to the LLM providers you configure (Groq, NVIDIA, Cerebras, etc.). Your keys are stored locally and never transmitted to JARVIS itself.</li>
-        <li><strong>System actions:</strong> You can command JARVIS to open apps, capture your screen, or put the machine to sleep/shut down. You are responsible for these actions.</li>
-        <li><strong>Privacy:</strong> JARVIS is provided as-is without warranty. Never share secrets or sensitive data in conversations if you do not trust your providers.</li>
+        <li><strong>Microphone access:</strong> JARVIS listens for wake phrases and voice commands. Audio is processed locally via faster-whisper or sent to configured providers.</li>
+        <li><strong>API usage:</strong> Conversation text may be sent to LLM providers you configure. Your keys are stored locally on this device only.</li>
+        <li><strong>System actions:</strong> You can command JARVIS to open apps, manage files, set reminders, capture your screen, or control system power.</li>
+        <li><strong>Privacy:</strong> JARVIS runs entirely on your machine. No data leaves your device except to providers you explicitly configure.</li>
       </ul>
       <label className="terms-check">
         <input type="checkbox" checked={checked} onChange={(e) => setChecked(e.target.checked)} />
-        I have read and accept the terms
+        I UNDERSTAND AND ACCEPT
       </label>
       <button className="btn btn-primary" disabled={!checked} onClick={onAccept}>
-        Continue
+        INITIALIZE
       </button>
     </div>
   );
