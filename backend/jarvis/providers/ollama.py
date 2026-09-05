@@ -15,7 +15,7 @@ class OllamaProvider(LLMProvider):
     is_local = True
 
     def __init__(self, api_key: str | None = None, model: str | None = None) -> None:
-        super().__init__(api_key="", model=model or os.environ.get("OLLAMA_MODEL", "llama3.2"))
+        super().__init__(api_key="", model=model or os.environ.get("OLLAMA_MODEL", "qwen3.5"))
         self.base_url = os.environ.get("OLLAMA_BASE_URL", "http://127.0.0.1:11434")
 
     def chat(self, messages: list[dict[str, str]], **kwargs: Any) -> ProviderResult:

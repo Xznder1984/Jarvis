@@ -37,6 +37,13 @@ def load_env() -> None:
             load_dotenv(p)
     if _DEVICE_ENV_FILE.exists():
         load_dotenv(_DEVICE_ENV_FILE, override=True)
+    # Finally, backfill any API keys stored in the settings store so providers
+    # work no matter how the backend was launched (dev uvicorn, run.py, binary).
+    # Empty-string env placeholders (repo `.env`) are treated as unset.
+    for key, value in load_settings().items():
+        if key.endswith("_API_KEY") or key == "FISH_AUDIO_REFERENCE_ID":
+            if value not in (None, "") and not os.environ.get(key):
+                os.environ[key] = str(value)
 
 
 def load_settings() -> dict[str, Any]:
