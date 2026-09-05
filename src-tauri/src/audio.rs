@@ -84,6 +84,9 @@ pub struct CaptureState {
     pub utterance_started: bool,
     pub utterance_start: Option<Instant>,
     pub last_voice: Option<Instant>,
+    /// Push-to-talk hold mode: capture lasts until push_to_talk_end regardless
+    /// of silence/VAD so "hold to talk" behaves like a walkie-talkie.
+    pub ptt_hold: bool,
     /// When the last clap registered (for single-clap blanking).
     pub last_clap_at: Option<Instant>,
 }
@@ -97,6 +100,7 @@ impl Default for CaptureState {
             utterance_started: false,
             utterance_start: None,
             last_voice: None,
+            ptt_hold: false,
             last_clap_at: None,
         }
     }
@@ -334,6 +338,22 @@ fn stream_utterance(
             if level > settings.vad_floor {
                 cap.last_voice = Some(now);
             }
+            // Walkie-talkie mode: keep transmitting until push_to_talk_end.
+            if cap.ptt_hold {
+                drop(cap);
+                if LISTENING.load(Ordering::SeqCst) {
+                    let _ = send_ws(
+                        app,
+                        "audio_chunk",
+                        &serde_json::json!({
+                            "data": pcm_to_b64(samples),
+                            "sample_rate": sample_rate,
+                            "channels": 1
+                        }),
+                    );
+                }
+                return;
+            }
             let silence_ms = cap
                 .last_voice
                 .map(|lv| now.duration_since(lv).as_millis() as u64)
@@ -406,13 +426,11 @@ pub fn push_to_talk_start(app: AppHandle) -> Result<(), String> {
     if !CAPTURE_ON.load(Ordering::SeqCst) {
         return Err("Audio capture not running".into());
     }
-    if LISTENING.swap(true, Ordering::SeqCst) {
-        return Ok(()); // already listening
-    }
-    log::info!("push-to-talk started");
+    let was_idle = !LISTENING.swap(true, Ordering::SeqCst);
     let now = Instant::now();
     if let Some(state) = app.try_state::<AudioState>() {
         if let Ok(mut cap) = state.capture.lock() {
+            cap.ptt_hold = true;
             cap.grace_until = None; // skip grace — stream immediately
             cap.wake_deadline = Some(now + std::time::Duration::from_secs(60));
             cap.utterance_started = true;
@@ -420,8 +438,11 @@ pub fn push_to_talk_start(app: AppHandle) -> Result<(), String> {
             cap.last_voice = Some(now);
         }
     }
-    let _ = app.emit("wake_detected", "ptt");
-    let _ = send_ws(&app, "wake_detected", &serde_json::json!({"method": "ptt"}));
+    if was_idle {
+        log::info!("push-to-talk started");
+        let _ = app.emit("wake_detected", "ptt");
+        let _ = send_ws(&app, "wake_detected", &serde_json::json!({"method": "ptt"}));
+    }
     Ok(())
 }
 

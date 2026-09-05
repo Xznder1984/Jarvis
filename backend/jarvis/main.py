@@ -162,6 +162,23 @@ def _dumps(obj: dict[str, Any]) -> str:
     return json.dumps(obj, separators=(",", ":"))
 
 
+# Connected websocket senders. Both the Rust shell (audio/control) and the
+# webview GUI (display) connect here; fan every outbound message out to all of
+# them so neither starves the other regardless of connection order.
+_SHELL_CLIENTS: set[Any] = set()
+
+
+async def _broadcast(env: dict[str, Any]) -> None:
+    dead = []
+    for sender in list(_SHELL_CLIENTS):
+        try:
+            await asyncio.wait_for(sender(env), timeout=2.0)
+        except Exception:  # noqa: BLE001
+            dead.append(sender)
+    for sender in dead:
+        _SHELL_CLIENTS.discard(sender)
+
+
 async def _broadcast_log(env: dict[str, Any]) -> None:
     """Subscriber stub: real subscription is per-connection in ws_endpoint."""
 
@@ -179,7 +196,8 @@ async def ws_endpoint(ws: WebSocket) -> None:
     async def send_to_shell(env: dict[str, Any]) -> None:
         await ws.send_text(_dumps(env))
 
-    assistant.send = send_to_shell
+    _SHELL_CLIENTS.add(send_to_shell)
+    assistant.send = _broadcast
 
     async def log_subscriber(entry: dict[str, Any]) -> None:
         try:
@@ -232,7 +250,7 @@ async def ws_endpoint(ws: WebSocket) -> None:
                 )
 
             elif msg_type == SETTINGS_UPDATE:
-                await _apply_settings(assistant, payload, send_to_shell)
+                await _apply_settings(assistant, payload, _broadcast)
 
     except WebSocketDisconnect:
         logger.info("Shell disconnected")
@@ -240,7 +258,7 @@ async def ws_endpoint(ws: WebSocket) -> None:
         logger.exception("WS loop error: %s", exc)
     finally:
         broker.unsubscribe(log_subscriber)
-        assistant.send = lambda _: asyncio.sleep(0)
+        _SHELL_CLIENTS.discard(send_to_shell)
 
 
 async def _send_full_state(assistant: Assistant, send: Any) -> None:
