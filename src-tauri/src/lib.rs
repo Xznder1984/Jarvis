@@ -25,6 +25,9 @@ pub fn run() {
                 let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
                 rt.block_on(ws::ws_loop(handle));
             });
+            // Start the always-on mic capture so PTT, clap wake, and
+            // conversation mode all have audio to work with.
+            let _ = audio::start_listening(app.handle().clone());
             Ok(())
         })
         .on_window_event(|window, event| {
