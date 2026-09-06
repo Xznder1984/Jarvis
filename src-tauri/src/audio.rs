@@ -59,11 +59,11 @@ impl Default for ClapSettings {
             clap_count: 2,
             window_ms: 1200,
             sensitivity: 0.5,
-            grace_ms: 2200,
-            silence_ms: 900,
-            max_utterance_ms: 15_000,
+            grace_ms: 1800,
+            silence_ms: 1500,
+            max_utterance_ms: 20_000,
             wake_timeout_ms: 15_000,
-            vad_floor: 0.008,
+            vad_floor: 0.010,
         }
     }
 }
