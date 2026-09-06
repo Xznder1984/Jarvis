@@ -43,28 +43,38 @@ pub async fn ws_loop(app: AppHandle) {
 
                 let (mut sink, read) = ws_stream.split();
                 let (tx, mut rx) = mpsc::unbounded_channel::<Value>();
+                let (frame_tx, mut frame_rx) = mpsc::unbounded_channel::<WsMessage>();
 
                 {
                     let state = app.state::<crate::WsState>();
                     *state.0.lock().unwrap() = Some(WsClient { tx });
                 }
 
-                // Forward outbound queue to the socket.
-                let mut reader = Box::pin(read);
-                let mut outbound = Box::pin(async move {
-                    while let Some(env) = rx.recv().await {
-                        if sink.send(WsMessage::Text(env.to_string())).await.is_err() {
-                            break;
+                // Forward JSON payloads and WS control frames (pongs) to the socket.
+                let writer = async move {
+                    loop {
+                        tokio::select! {
+                            Some(v) = rx.recv() => {
+                                if sink.send(WsMessage::Text(v.to_string())).await.is_err() {
+                                    break;
+                                }
+                            }
+                            Some(m) = frame_rx.recv() => {
+                                if sink.send(m).await.is_err() {
+                                    break;
+                                }
+                            }
                         }
                     }
-                });
+                };
 
                 let _ = app.emit("backend_status", true);
 
                 // Drive both tasks; if either ends, drop the connection.
+                let mut reader = Box::pin(read);
                 tokio::select! {
-                    _ = &mut outbound => {}
-                    _ = run_inbound(&app, &mut reader) => {}
+                    _ = writer => {}
+                    _ = run_inbound(&app, &mut reader, &frame_tx) => {}
                 }
 
                 {
@@ -87,9 +97,16 @@ pub async fn ws_loop(app: AppHandle) {
 async fn run_inbound(
     app: &AppHandle,
     read: &mut (impl futures_util::Stream<Item = Result<WsMessage, tokio_tungstenite::tungstenite::Error>> + Unpin),
+    frame_tx: &mpsc::UnboundedSender<WsMessage>,
 ) {
     while let Some(msg) = read.next().await {
         let Ok(msg) = msg else { break };
+        // uvicorn sends periodic WebSocket pings; tungstenite no longer
+        // auto-pongs, so reply or the backend drops us (~every 60s).
+        if let WsMessage::Ping(payload) = msg {
+            let _ = frame_tx.send(WsMessage::Pong(payload));
+            continue;
+        }
         if let WsMessage::Text(text) = msg {
             if let Ok(value) = serde_json::from_str::<Value>(&text) {
                 handle_inbound(app, value).await;
