@@ -66,8 +66,16 @@ def event_loop():
 
 
 @pytest.mark.asyncio
-async def test_ws_wake_then_question_flow():
-    """Full two-turn flow: wake (clap) -> response -> question -> LLM answer."""
+async def test_ws_wake_then_question_flow(live_backend):
+    """Full two-turn flow: wake (clap) -> response -> question -> LLM answer.
+
+    Requires a live backend at ws://127.0.0.1:8765/ws (the `live_backend` fixture
+    or `pytest --live` marker). Skipped in pure unit-test environments.
+    """
+    import websockets
+
+    if not live_backend:
+        pytest.skip("requires live backend")
     import websockets
 
     wake_pcm = await _make_pcm_wav("jarvis")
