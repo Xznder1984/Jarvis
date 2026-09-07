@@ -160,6 +160,27 @@ pub fn init() {
     log::info!("JARVIS shell logger initialized (level={filter})");
 }
 
+/// Log panics to the shell log instead of dying silently. Falls back to the
+/// default hook afterwards so the standard behavior is preserved.
+pub fn install_panic_hook() {
+    let default = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        let msg = if let Some(s) = info.payload().downcast_ref::<&str>() {
+            (*s).to_string()
+        } else if let Some(s) = info.payload().downcast_ref::<String>() {
+            s.clone()
+        } else {
+            "non-string panic payload".to_string()
+        };
+        let loc = info
+            .location()
+            .map(|l| format!("{}:{}", l.file(), l.line()))
+            .unwrap_or_else(|| "?".to_string());
+        log::error!("PANIC at {loc}: {msg}");
+        default(info);
+    }));
+}
+
 /// Give the logger a handle so records can be forwarded to the backend.
 /// Called from `.setup()` once the app handle exists.
 pub fn attach(app: &tauri::AppHandle) {

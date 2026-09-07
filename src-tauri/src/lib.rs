@@ -11,8 +11,9 @@ pub struct WsState(pub Mutex<Option<ws::WsClient>>);
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     logging::init();
+    logging::install_panic_hook();
 
-    tauri::Builder::default()
+    let app = tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .manage(WsState(Mutex::new(None)))
         .manage(audio::AudioState::default())
@@ -50,6 +51,12 @@ pub fn run() {
             platform::action_shutdown,
             platform::action_screen_capture,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application");
+
+    app.run(|_handle, event| {
+        if matches!(event, tauri::RunEvent::Exit) {
+            log::info!("JARVIS app exiting cleanly");
+        }
+    });
 }
