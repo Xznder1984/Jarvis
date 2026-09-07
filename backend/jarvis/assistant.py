@@ -88,8 +88,9 @@ class Assistant:
         )
         self.tts = TTSRouter(self.config, on_notify=lambda level, msg: activity.add(level, msg))
         self.stt = WhisperSTT(
-            model_size=self.config.get("STT_MODEL", "base"),
+            model_size=self.config.get("STT_MODEL", "tiny"),
             device=self.config.get("STT_DEVICE", "cpu"),
+            compute_type=self.config.get("STT_COMPUTE_TYPE", "int8"),
         )
         self.vision = Vision()
         self.web = WebSearch()

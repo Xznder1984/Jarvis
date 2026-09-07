@@ -242,7 +242,8 @@ class Config:
             else:
                 out[key] = value
         # Always include known defaults even if unset.
-        out.setdefault("STT_MODEL", "base")
+        out.setdefault("STT_MODEL", "tiny")
+        out.setdefault("STT_COMPUTE_TYPE", "int8")
         out.setdefault("LOCAL_TTS_VOICE", "Thomas")
         out.setdefault("LOCAL_TTS_RATE", 185)
         out.setdefault("WAKE_PHRASE", self.get("WAKE_PHRASE", "jarvis"))

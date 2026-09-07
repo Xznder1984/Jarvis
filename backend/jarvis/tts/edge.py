@@ -98,6 +98,10 @@ async def _edge_to_mp3(text: str, voice: str, rate: str, pitch: str) -> bytes:
 def _mp3_to_wav(mp3: bytes) -> bytes:
     """Convert Edge's MP3 into a 24 kHz mono PCM WAV via ffmpeg."""
     env = os.environ.copy()
+    # Forking ffmpeg while faster-whisper's OpenMP threads are active is
+    # hazardous (OMP Warning #191, possible stalls); skip OpenMP re-init in
+    # the child to keep the fork cheap and safe.
+    env.setdefault("KMP_INIT_AT_FORK", "FALSE")
     ffmpeg = _find_ffmpeg()
     if ffmpeg:
         with tempfile.TemporaryDirectory() as tmp:

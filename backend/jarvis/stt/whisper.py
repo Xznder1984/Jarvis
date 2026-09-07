@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import io
 import logging
+import os
 import wave
 
 import numpy as np
@@ -39,17 +40,23 @@ def resample_to_16k(samples: np.ndarray, sample_rate: int) -> np.ndarray:
 class WhisperSTT:
     """Lazy-loaded faster-whisper wrapper."""
 
-    def __init__(self, model_size: str = "base", device: str = "cpu") -> None:
+    def __init__(self, model_size: str = "tiny", device: str = "cpu", compute_type: str = "int8") -> None:
         self._model_size = model_size
         self._device = device
+        # int8 is ~2x faster than the float32 fallback faster-whisper picks on
+        # Intel CPUs (and avoids the float16->float32 conversion warning).
+        self._compute_type = os.environ.get("STT_COMPUTE_TYPE", compute_type)
         self._model = None
 
     def _load(self):
         if self._model is None:
             from faster_whisper import WhisperModel
 
-            logger.info("Loading faster-whisper model '%s' (device=%s)...", self._model_size, self._device)
-            self._model = WhisperModel(self._model_size, device=self._device)
+            logger.info(
+                "Loading faster-whisper model '%s' (device=%s, compute=%s)...",
+                self._model_size, self._device, self._compute_type,
+            )
+            self._model = WhisperModel(self._model_size, device=self._device, compute_type=self._compute_type)
         return self._model
 
     def warmup(self) -> None:
