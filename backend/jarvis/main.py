@@ -12,6 +12,8 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
@@ -50,6 +52,9 @@ class AssistantHolder:
 
 
 holder = AssistantHolder()
+
+# Track startup time for uptime reporting
+_STARTUP_TIME = time.time()
 
 
 @asynccontextmanager
@@ -101,6 +106,49 @@ class LogLevelRequest(BaseModel):
 @app.get("/api/health", response_model=PingResponse)
 async def health() -> PingResponse:
     return PingResponse(ok=True)
+
+
+@app.get("/api/health/detailed")
+async def health_detailed() -> dict[str, Any]:
+    """Comprehensive health check with system metrics."""
+    import psutil
+
+    process = psutil.Process()
+    mem = process.memory_info()
+    cpu_percent = process.cpu_percent(interval=0.1)
+
+    config = Config()
+    assistant = holder.assistant
+
+    return {
+        "ok": True,
+        "service": "jarvis-backend",
+        "version": "0.2.0",
+        "uptime_seconds": time.time() - _STARTUP_TIME,
+        "uptime_human": f"{(time.time() - _STARTUP_TIME) / 3600:.1f}h",
+        "process": {
+            "pid": os.getpid(),
+            "rss_mb": mem.rss / 1024 / 1024,
+            "vms_mb": mem.vms / 1024 / 1024,
+            "cpu_percent": cpu_percent,
+            "threads": process.num_threads(),
+        },
+        "websocket": {
+            "connected_clients": len(_SHELL_CLIENTS),
+        },
+        "stt": {
+            "model": config.get("STT_MODEL", "tiny"),
+            "compute_type": config.get("STT_COMPUTE_TYPE", "int8"),
+            "model_loaded": assistant.stt._model is not None if assistant else False,
+        },
+        "tts": {
+            "active_provider": assistant.router.active_provider if assistant else None,
+        },
+        "llm": {
+            "provider_priority": config.get("PROVIDER_PRIORITY", []),
+            "active_provider": assistant.router.active_provider if assistant else None,
+        },
+    }
 
 
 @app.get("/api/activity")
