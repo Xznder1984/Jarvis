@@ -66,4 +66,24 @@ class TTSRouter:
 
 def _is_real_audio(wav: bytes) -> bool:
     """Silent fallback (placeholder wav) means the converter gave up."""
-    return wav[:4] == b"RIFF" and len(wav) > 4096
+    if wav[:4] != b"RIFF" or len(wav) <= 4096:
+        return False
+    # Reject the all-zero placeholder WAV ffmpeg-less fallback emits, so a
+    # converter failure surfaces as "edge" despite producing silence.
+    try:
+        import io as _io
+        import wave as _wave
+
+        with _wave.open(_io.BytesIO(wav), "rb") as w:
+            if w.getnchannels() != 1 or w.getsampwidth() != 2:
+                return False
+            frames = w.readframes(w.getnframes())
+        if not frames:
+            return False
+        import array as _array
+
+        samples = _array.array("h", frames)
+        peak = max((abs(s) for s in samples[:12000]), default=0)
+        return peak > 0
+    except Exception:  # noqa: BLE001
+        return True  # unparseable — treat as audio rather than crash TTS

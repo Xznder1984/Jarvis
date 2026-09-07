@@ -52,6 +52,22 @@ class WhisperSTT:
             self._model = WhisperModel(self._model_size, device=self._device)
         return self._model
 
+    def warmup(self) -> None:
+        """Preload the model so the first real utterance isn't delayed by a
+        cold model load (which can take 20-60s on CPU). Runs the load in a
+        daemon thread so startup never blocks on it."""
+        import threading
+
+        def _load_in_background() -> None:
+            try:
+                logger.info("Preloading faster-whisper model in the background...")
+                self._load()
+                logger.info("Faster-whisper model ready.")
+            except Exception:  # noqa: BLE001
+                logger.exception("Faster-whisper preload failed; will lazy-load on first use.")
+
+        threading.Thread(target=_load_in_background, name="stt-warmup", daemon=True).start()
+
     def transcribe_pcm(self, pcm_bytes: bytes, sample_rate: int = WHISPER_RATE) -> str:
         """Transcribe raw 16-bit PCM mono audio (resampled to 16 kHz)."""
         model = self._load()

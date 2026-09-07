@@ -64,6 +64,7 @@ async def lifespan(app: FastAPI):
         root.addHandler(LogBridgeHandler(broker))
 
     holder.assistant = Assistant(config)
+    holder.assistant.stt.warmup()
     activity.info("JARVIS backend ready")
     logger.info("JARVIS backend ready (ws://%s:%s)", config.ws_host, config.ws_port)
     yield
@@ -194,7 +195,12 @@ async def ws_endpoint(ws: WebSocket) -> None:
     logger.info("Shell connected")
 
     async def send_to_shell(env: dict[str, Any]) -> None:
-        await ws.send_text(_dumps(env))
+        try:
+            await ws.send_text(_dumps(env))
+        except Exception:  # noqa: BLE001
+            # Socket closed mid-broadcast; drop silently, the loop's own
+            # receive() will surface the disconnect and clean up below.
+            _SHELL_CLIENTS.discard(send_to_shell)
 
     _SHELL_CLIENTS.add(send_to_shell)
     assistant.send = _broadcast
@@ -255,7 +261,13 @@ async def ws_endpoint(ws: WebSocket) -> None:
     except WebSocketDisconnect:
         logger.info("Shell disconnected")
     except Exception as exc:  # noqa: BLE001
-        logger.exception("WS loop error: %s", exc)
+        # Starlette raises RuntimeError('WebSocket is not connected...') when the
+        # peer vanishes between frames — treat it as a normal disconnect, not an
+        # error worth a traceback.
+        if isinstance(exc, RuntimeError) and "accept" in str(exc):
+            logger.info("Shell disconnected (socket closed during receive)")
+        else:
+            logger.exception("WS loop error: %s", exc)
     finally:
         broker.unsubscribe(log_subscriber)
         _SHELL_CLIENTS.discard(send_to_shell)

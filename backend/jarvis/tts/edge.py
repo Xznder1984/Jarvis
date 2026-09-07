@@ -22,6 +22,24 @@ logger = logging.getLogger("jarvis.tts.edge")
 #: k = "rate", "pitch" accept values like "+10%", "-30Hz" (SSML-style).
 _JARVIS_VOICE = "en-GB-RyanNeural"
 
+#: launchd/LaunchAgents run with a minimal PATH that often hides Homebrew's
+#: /usr/local/bin, so resolve ffmpeg explicitly instead of trusting $PATH.
+_FFMPEG_CANDIDATES = (
+    "/usr/local/bin/ffmpeg",
+    "/opt/homebrew/bin/ffmpeg",
+    "/usr/bin/ffmpeg",
+)
+
+
+def _find_ffmpeg() -> str | None:
+    hit = shutil.which("ffmpeg")
+    if hit:
+        return hit
+    for candidate in _FFMPEG_CANDIDATES:
+        if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+            return candidate
+    return None
+
 
 class EdgeTTS:
     def __init__(
@@ -39,7 +57,7 @@ class EdgeTTS:
             import edge_tts  # noqa: F401
         except ImportError:
             return False
-        return shutil.which("ffmpeg") is not None or shutil.which("ffmpeg") or self._has_ffmpeg_py()
+        return _find_ffmpeg() is not None or self._has_ffmpeg_py()
 
     def _has_ffmpeg_py(self) -> bool:
         try:
@@ -80,13 +98,14 @@ async def _edge_to_mp3(text: str, voice: str, rate: str, pitch: str) -> bytes:
 def _mp3_to_wav(mp3: bytes) -> bytes:
     """Convert Edge's MP3 into a 24 kHz mono PCM WAV via ffmpeg."""
     env = os.environ.copy()
-    if shutil.which("ffmpeg"):
+    ffmpeg = _find_ffmpeg()
+    if ffmpeg:
         with tempfile.TemporaryDirectory() as tmp:
             src = f"{tmp}/in.mp3"
             dst = f"{tmp}/out.wav"
             open(src, "wb").write(mp3)
             proc = subprocess.run(
-                ["ffmpeg", "-y", "-loglevel", "error", "-i", src, "-ar", "24000",
+                [ffmpeg, "-y", "-loglevel", "error", "-i", src, "-ar", "24000",
                  "-ac", "1", "-sample_fmt", "s16", dst],
                 capture_output=True, timeout=60, env=env,
             )
