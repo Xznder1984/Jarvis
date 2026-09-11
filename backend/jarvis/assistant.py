@@ -48,7 +48,12 @@ SYSTEM_PROMPT = (
     "You are JARVIS, a personal desktop assistant inspired by the fictional J.A.R.V.I.S. "
     "Keep responses concise and conversational; you are spoken aloud, so favor short, "
     "natural sentences over long lists. Address the user with the honorific '{honorific}' "
-    "when natural. You can perform real actions on the user's machine. When the user asks "
+    "when natural. "
+    "The current date and local time on the user's machine is provided in the first "
+    "system message; rely on it when the user asks about the date, time, day, or weather "
+    "context. Answer factual questions directly and accurately; ask for clarification "
+    "only when truly needed, never reply with a generic standby line. "
+    "You can perform real actions on the user's machine. When the user asks "
     "you to do something, you may emit a JSON action block in your reply like: "
     '```json {{"action": "open_app", "args": {{"app": "Safari"}}}}``` '
     'Available actions: "open_app" (args: app), "open_path" (args: path), "sleep", '
@@ -60,6 +65,14 @@ SYSTEM_PROMPT = (
     "Only use these actions when the user clearly asks for them. After completing any action, "
     "ask the user if they want you to stay in the background, such as 'Do you want me to stay "
     "in the background, {honorific}?'"
+)
+
+# The user's local date/time, injected as a real system message so the model can
+# answer time/date questions instead of giving generic replies.
+CLOCK_CONTEXT = (
+    "Current local date and time on this user's machine: {now} (in the user's local "
+    "timezone, without daylight-saving ambiguity). Use this to answer any question "
+    "about the current date, day, or time. Do not mention the source of this information."
 )
 
 ACTION_JSON = "```json"
@@ -88,7 +101,7 @@ class Assistant:
         )
         self.tts = TTSRouter(self.config, on_notify=lambda level, msg: activity.add(level, msg))
         self.stt = WhisperSTT(
-            model_size=self.config.get("STT_MODEL", "tiny"),
+            model_size=self.config.get("STT_MODEL", "tiny.en"),
             device=self.config.get("STT_DEVICE", "cpu"),
             compute_type=self.config.get("STT_COMPUTE_TYPE", "int8"),
         )
@@ -387,7 +400,7 @@ class Assistant:
                         f"The user asked: {text}\n\nWeb search results:\n{results}\n\n"
                         f"Summarize the most relevant answer concisely, addressing the user as {self.honorific}."
                     )
-                    reply, _ = self.router.chat([{"role": "user", "content": prompt}])
+                    reply, _ = await asyncio.to_thread(self.router.chat, [{"role": "user", "content": prompt}])
                     return reply, True
                 return "I couldn't find anything on that.", True
 
@@ -472,10 +485,24 @@ class Assistant:
         return spec, "A scheduled event."
 
     async def _llm_reply(self, text: str) -> tuple[str, bool]:
+        import datetime
+
         self.conversation.add("user", text)
         system = SYSTEM_PROMPT.format(honorific=self.honorific)
+        now = datetime.datetime.now().strftime("%A, %B %d, %Y at %I:%M %p")
+        clock = CLOCK_CONTEXT.format(now=now)
         try:
-            reply, provider = self.router.chat([{"role": "system", "content": system}] + self.conversation.messages())
+            # provider.chat() is a blocking HTTP call (up to 90s timeout per
+            # provider). Run it off the event loop so a slow/dead provider
+            # never blocks STT, TTS or the WS/health handlers.
+            reply, provider = await asyncio.to_thread(
+                self.router.chat,
+                [
+                    {"role": "system", "content": system},
+                    {"role": "system", "content": clock},
+                ]
+                + self.conversation.messages(),
+            )
         except Exception as exc:  # noqa: BLE001
             activity.error(f"LLM failed: {exc}")
             return "Sorry, I hit a problem reaching the language model.", False

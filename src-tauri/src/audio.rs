@@ -54,19 +54,19 @@ pub struct ClapSettings {
 }
 
 impl Default for ClapSettings {
-    fn default() -> Self {
-        Self {
-            clap_count: 2,
-            window_ms: 1200,
-            sensitivity: 0.5,
-            grace_ms: 1800,
-            silence_ms: 1500,
-            max_utterance_ms: 20_000,
-            wake_timeout_ms: 15_000,
-            vad_floor: 0.010,
+        fn default() -> Self {
+            Self {
+                clap_count: 2,
+                window_ms: 1200,
+                sensitivity: 0.3,
+                grace_ms: 1800,
+                silence_ms: 1500,
+                max_utterance_ms: 20_000,
+                wake_timeout_ms: 15_000,
+                vad_floor: 0.010,
+            }
         }
     }
-}
 
 static LISTENING: AtomicBool = AtomicBool::new(false);
 static CAPTURE_ON: AtomicBool = AtomicBool::new(false);

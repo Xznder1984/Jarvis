@@ -137,7 +137,7 @@ async def health_detailed() -> dict[str, Any]:
             "connected_clients": len(_SHELL_CLIENTS),
         },
         "stt": {
-            "model": config.get("STT_MODEL", "tiny"),
+            "model": config.get("STT_MODEL", "tiny.en"),
             "compute_type": config.get("STT_COMPUTE_TYPE", "int8"),
             "model_loaded": assistant.stt._model is not None if assistant else False,
         },
@@ -323,7 +323,7 @@ async def ws_endpoint(ws: WebSocket) -> None:
 
 async def _send_full_state(assistant: Assistant, send: Any) -> None:
     """Push current state to a newly connected shell so the GUI is in sync."""
-    from jarvis.contract import MODE_UPDATE, PROVIDER_UPDATE, SETTINGS, build
+    from jarvis.contract import CLAP_SETTINGS, MODE_UPDATE, PROVIDER_UPDATE, SETTINGS, build
 
     await send(build(SETTINGS, {"settings": assistant.config.masked_settings()}))
     await send(build(MODE_UPDATE, {"mode": assistant.modes.mode}))
@@ -334,6 +334,22 @@ async def _send_full_state(assistant: Assistant, send: Any) -> None:
                 {"provider": assistant.router.active_provider, "state": "active", "credit_estimate": None},
             )
         )
+
+    # Also send clap/voice settings so the shell is configured on connect.
+    await send(
+        build(
+            CLAP_SETTINGS,
+            {
+                "clap_count": int(assistant.config.get_int("CLAP_COUNT", 2)),
+                "window_ms": int(assistant.config.get_int("CLAP_WINDOW_MS", 1200)),
+                "sensitivity": float(assistant.config.get_float("CLAP_SENSITIVITY", 0.3)),
+                "grace_ms": int(assistant.config.get_int("CLAP_GRACE_MS", 1800)),
+                "silence_ms": int(assistant.config.get_int("UTTERANCE_SILENCE_MS", 1500)),
+                "max_utterance_ms": int(assistant.config.get_int("UTTERANCE_MAX_MS", 20000)),
+                "vad_floor": float(assistant.config.get_float("VAD_FLOOR", 0.010)),
+            },
+        )
+    )
 
 
 async def _apply_settings(assistant: Assistant, payload: dict[str, Any], send: Any) -> None:
@@ -349,14 +365,14 @@ async def _apply_settings(assistant: Assistant, payload: dict[str, Any], send: A
     # Apply provider priority / model changes immediately.
     assistant.router.reorder(assistant.router._load_priority())
 
-    # Propagate clap/voice settings to the Rust shell.
+# Propagate clap/voice settings to the Rust shell.
     await send(
         build(
             CLAP_SETTINGS,
             {
                 "clap_count": int(assistant.config.get_int("CLAP_COUNT", 2)),
                 "window_ms": int(assistant.config.get_int("CLAP_WINDOW_MS", 1200)),
-                "sensitivity": float(assistant.config.get_float("CLAP_SENSITIVITY", 0.5)),
+                "sensitivity": float(assistant.config.get_float("CLAP_SENSITIVITY", 0.3)),
                 "grace_ms": int(assistant.config.get_int("CLAP_GRACE_MS", 1800)),
                 "silence_ms": int(assistant.config.get_int("UTTERANCE_SILENCE_MS", 1500)),
                 "max_utterance_ms": int(assistant.config.get_int("UTTERANCE_MAX_MS", 20000)),

@@ -23,6 +23,7 @@ class TTSRouter:
     def __init__(self, config, on_notify: Callable[[str, str], None] | None = None) -> None:
         self._config = config
         self._on_notify = on_notify
+        self._fish_quota_failed = False
         self.fish = FishAudioTTS(
             api_key=config.get("FISH_AUDIO_API_KEY", "") or None,
             reference_id=config.get("FISH_AUDIO_REFERENCE_ID", "") or None,
@@ -40,13 +41,18 @@ class TTSRouter:
 
     def synthesize(self, text: str) -> tuple[str, str]:
         """Returns (provider, base64-wav)."""
-        if self.fish.available():
+        # Once Fish reports a hard auth/payment (quota) failure, don't keep
+        # sending requests that will 402 on every single reply — skip straight
+        # to Edge to cut the round-trip latency out of each turn.
+        if self.fish.available() and not self._fish_quota_failed:
             try:
                 audio = self.fish.synthesize(text)
                 return "fish", encode_audio(audio)
             except ProviderError as exc:
                 self._notify("warn", f"Fish Audio unavailable ({exc.code or 'error'}), trying Edge TTS.")
                 logger.warning("Fish Audio failed: %s", exc)
+                if exc.code == "quota":
+                    self._fish_quota_failed = True
 
         if self.edge.available():
             try:

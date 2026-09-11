@@ -18,6 +18,7 @@ import json
 import logging
 import os
 import threading
+import time
 from pathlib import Path
 from typing import Any, Callable
 
@@ -63,6 +64,11 @@ class ProviderRouter:
         self._on_provider_update = on_provider_update
         self._lock = threading.Lock()
         self._usage = self._load_usage()
+        # Circuit breaker: provider -> absolute time until it is tried again.
+        # Dead providers (hard 4xx/5xx, invalid keys) get a long cooldown so we
+        # don't re-hit them on *every* reply, which made turns slow and laggy.
+        self._disabled_until: dict[str, float] = {}
+        self._failure_count: dict[str, int] = {}
         self.providers: dict[str, LLMProvider] = self._build_providers()
         self.active_provider: str | None = None
         self.priority = self._load_priority()
@@ -155,6 +161,32 @@ class ProviderRouter:
             return False
         return status.remaining <= self._config.credit_low_threshold
 
+    # ------------------------------------------------------- circuit breaker
+    def _is_disabled(self, name: str) -> bool:
+        until = self._disabled_until.get(name, 0.0)
+        return until > time.monotonic()
+
+    def _mark_failed(self, name: str, retryable: bool) -> None:
+        """Back off a provider after a failure.
+
+        Hard, non-retryable failures (bad key, dead endpoint) disable the
+        provider for the rest of the process lifetime. Retryable failures use
+        exponential backoff so a brief hiccup doesn't stamp on every turn.
+        """
+        failed = self._failure_count.get(name, 0) + 1
+        self._failure_count[name] = failed
+        if not retryable:
+            # Permanently-ish kill a dead provider (e.g. 410 Gone, bad key).
+            self._disabled_until[name] = float("inf")
+            self._notify("warn", f"{self.providers[name].label} disabled (persistent failure).")
+            return
+        backoff = min(300, 10 * (3 ** min(failed - 1, 4)))
+        self._disabled_until[name] = time.monotonic() + backoff
+
+    def _mark_success(self, name: str) -> None:
+        self._failure_count.pop(name, None)
+        self._disabled_until.pop(name, None)
+
     # --------------------------------------------------------------- chat
     def chat(self, messages: list[dict[str, str]], **kwargs: Any) -> tuple[str, str]:
         """Route a conversation. Returns (text, provider_name)."""
@@ -163,6 +195,8 @@ class ProviderRouter:
             last_error: str | None = None
 
             for name in order:
+                if self._is_disabled(name):
+                    continue
                 if name == "ollama":
                     provider = self.providers.get("ollama")
                     if provider is None:
@@ -170,6 +204,7 @@ class ProviderRouter:
                         continue
                     if not provider.available():
                         last_error = "local Ollama server not reachable"
+                        self._mark_failed(name, retryable=False)
                         continue
                     return self._invoke(provider, messages, **kwargs)
 
@@ -184,20 +219,42 @@ class ProviderRouter:
                         f"({status.remaining:.0%}), switching.",
                     )
                     self._emit_provider_update(name, "low", status.remaining)
+                    self._mark_failed(name, retryable=False)
                     continue
 
                 provider = self.providers[name]
                 try:
                     result = self._invoke(provider, messages, **kwargs)
                     self._emit_provider_update(name, "active", status.remaining)
+                    self._mark_success(name)
                     return result
                 except ProviderError as exc:
+                    # Transient rate-limit/quota on the *first* provider: retry
+                    # once in-call after a short sleep instead of immediately
+                    # cascading to dead fallbacks (which only adds latency).
+                    if exc.retryable and exc.code == "quota" and name == order[0]:
+                        self._notify("warn", f"{provider.label} rate limited, retrying in 2s...")
+                        time.sleep(2.0)
+                        try:
+                            result = self._invoke(provider, messages, **kwargs)
+                            self._emit_provider_update(name, "active", status.remaining)
+                            self._mark_success(name)
+                            return result
+                        except ProviderError as exc2:
+                            self._mark_failed(name, retryable=exc2.retryable)
+                            last_error = str(exc2)
+                            self._notify(
+                                "warn",
+                                f"{provider.label} failed again ({exc2.code or exc2}), switching providers.",
+                            )
+                            continue
                     last_error = str(exc)
                     self._notify(
                         "warn",
                         f"{provider.label} failed ({exc.code or exc}), switching providers.",
                     )
                     self._emit_provider_update(name, "exhausted", status.remaining)
+                    self._mark_failed(name, retryable=exc.retryable)
                     continue
 
             raise ProviderError(f"All providers exhausted. Last error: {last_error}", retryable=False)

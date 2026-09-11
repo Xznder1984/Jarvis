@@ -26,8 +26,10 @@ class OllamaProvider(LLMProvider):
             "stream": False,
             **{k: v for k, v in kwargs.items() if k in ("temperature", "max_tokens", "top_p")},
         }
+        # Keep the chat timeout small: a stalled local server must not freeze a
+        # voice turn for two minutes. 20s is plenty for a local model hit.
         try:
-            resp = httpx.post(url, json=body, timeout=120.0)
+            resp = httpx.post(url, json=body, timeout=20.0)
         except httpx.HTTPError as exc:
             raise ProviderError(f"{self.label}: cannot reach server: {exc}", retryable=True) from exc
 

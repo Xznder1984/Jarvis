@@ -46,6 +46,9 @@ export default function App() {
     onMode: (m) => setMode(m),
     onSay: (text, _provider, audioB64) => {
       setLastSay(text);
+      // Bring the window to the front when JARVIS speaks, so replies are
+      // visible even while the assistant runs in the background.
+      invoke("show_main_window_cmd").catch(() => {});
       if (audioB64) {
         setSpeaking(true);
         playTtsAudio(audioB64, () => {

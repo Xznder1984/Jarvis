@@ -22,6 +22,13 @@ logger = logging.getLogger("jarvis.stt.whisper")
 WHISPER_RATE = 16000
 
 
+def _env_bool(name: str, default: bool) -> bool:
+    val = os.environ.get(name)
+    if val is None:
+        return default
+    return val.strip().lower() in ("1", "true", "yes", "on")
+
+
 def resample_to_16k(samples: np.ndarray, sample_rate: int) -> np.ndarray:
     """Resample a mono float array to 16 kHz using linear interpolation.
 
@@ -40,12 +47,16 @@ def resample_to_16k(samples: np.ndarray, sample_rate: int) -> np.ndarray:
 class WhisperSTT:
     """Lazy-loaded faster-whisper wrapper."""
 
-    def __init__(self, model_size: str = "tiny", device: str = "cpu", compute_type: str = "int8") -> None:
-        self._model_size = model_size
+    def __init__(self, model_size: str = "tiny.en", device: str = "cpu", compute_type: str = "int8") -> None:
+        self._model_size = os.environ.get("STT_MODEL", model_size)
         self._device = device
         # int8 is ~2x faster than the float32 fallback faster-whisper picks on
         # Intel CPUs (and avoids the float16->float32 conversion warning).
         self._compute_type = os.environ.get("STT_COMPUTE_TYPE", compute_type)
+        # The shell already trims silence with its own VAD before sending the
+        # utterance, so Whisper's extra VAD pass is redundant and costs ~2x
+        # wall time on CPU. Default off; kept reconfigurable.
+        self._vad_filter = _env_bool("STT_VAD_FILTER", False)
         self._model = None
 
     def _load(self):
@@ -81,7 +92,12 @@ class WhisperSTT:
         audio = np.frombuffer(pcm_bytes, dtype=np.int16).astype(np.float32) / 32768.0
         if sample_rate != WHISPER_RATE:
             audio = resample_to_16k(audio, sample_rate)
-        segments, _ = model.transcribe(audio, beam_size=1, vad_filter=True)
+        segments, _ = model.transcribe(
+            audio,
+            beam_size=1,
+            vad_filter=self._vad_filter,
+            condition_on_previous_text=False,
+        )
         return "".join(seg.text for seg in segments).strip()
 
     def transcribe_wav(self, wav_bytes: bytes) -> str:
