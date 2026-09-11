@@ -13,6 +13,7 @@ Behavior:
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -223,4 +224,9 @@ class ProviderRouter:
 
     def _emit_provider_update(self, name: str, state: str, remaining: float | None) -> None:
         if self._on_provider_update:
-            self._on_provider_update(name, state, remaining)
+            try:
+                loop = asyncio.get_running_loop()
+                asyncio.create_task(self._on_provider_update(name, state, remaining))
+            except RuntimeError:
+                # No running loop, skip the update
+                pass
