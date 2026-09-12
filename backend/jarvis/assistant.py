@@ -263,8 +263,13 @@ class Assistant:
 
         text = text.strip()
         await self._emit(TRANSCRIPT, {"text": text, "partial": False})
+
+        # Nothing audible was actually said (false wake: a clap or ambient
+        # noise, not speech). Go straight back to standby WITHOUT speaking or
+        # popping the window — the whole point of the always-awake clap is that
+        # JARVIS never interrupts you, and an empty wake isn't worth breaking
+        # that for.
         if not text:
-            await self.speak("I didn't catch that. Could you repeat it?")
             await self._go_idle()
             return
 

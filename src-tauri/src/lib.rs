@@ -9,14 +9,20 @@ use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::Manager;
 
+const QUIT_ID: &str = "app-quit";
+const HIDE_ID: &str = "app-hide";
+const SHOW_ID: &str = "app-show";
+
 /// Shared state: the WebSocket client to the Python backend.
 pub struct WsState(pub Mutex<Option<ws::WsClient>>);
 
 fn show_main_window(app: &tauri::AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
+        let _ = window.set_always_on_top(true);
         let _ = window.unminimize();
         let _ = window.show();
-        let _ = window.set_focus();
+        // Deliberately NO set_focus(): JARVIS floats above the current app
+        // without stealing focus, so it never interrupts what you're doing.
     }
 }
 
@@ -24,6 +30,34 @@ fn hide_main_window(app: &tauri::AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.hide();
     }
+}
+
+fn setup_app_menu(app: &tauri::App) -> tauri::Result<()> {
+    // macOS app menu. Besides Quit (Cmd+Q), which on macOS triggers
+    // RunEvent::ExitRequested we treat as a real quit, we add:
+    //   - Hide JARVIS   Cmd+W         (background / hidden to tray)
+    //   - Show JARVIS   Cmd+Shift+W   (back to the GUI)
+    // These live in the macOS menu bar so the accelerators work app-wide,
+    // even when the JARVIS window itself isn't focused — it never pops up
+    // mid-typing except when YOU summon it.
+    let hide = tauri::menu::MenuItem::with_id(
+        app,
+        HIDE_ID,
+        "Hide JARVIS",
+        true,
+        Some("CmdOrCtrl+W"),
+    )?;
+    let show = tauri::menu::MenuItem::with_id(
+        app,
+        SHOW_ID,
+        "Show JARVIS",
+        true,
+        Some("CmdOrCtrl+Shift+W"),
+    )?;
+    let quit = tauri::menu::PredefinedMenuItem::quit(app, Some("Quit JARVIS"))?;
+    let menu = Menu::with_items(app, &[&hide, &show, &quit])?;
+    app.set_menu(menu)?;
+    Ok(())
 }
 
 #[tauri::command]
@@ -86,6 +120,8 @@ pub fn run() {
         .setup(|app| {
             // Let the logger forward records to the backend over WS.
             logging::attach(app.handle());
+            // Menu bar with Quit => makes Cmd+Q work on macOS.
+            setup_app_menu(app)?;
             // Menu-bar tray: Show / Hide / Quit + left-click toggle.
             setup_tray(app)?;
             // Spawn the backend connection loop (with reconnect).
@@ -123,9 +159,11 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building tauri application");
 
-    app.run(|_handle, event| {
-        if matches!(event, tauri::RunEvent::Exit) {
-            log::info!("JARVIS app exiting cleanly");
+    app.run(|_handle, event| match event {
+        tauri::RunEvent::ExitRequested { .. } => {
+            log::info!("JARVIS quit requested (Cmd+Q / menu Quit) — exiting.");
         }
+        tauri::RunEvent::Exit => log::info!("JARVIS app exiting cleanly"),
+        _ => {}
     });
 }
